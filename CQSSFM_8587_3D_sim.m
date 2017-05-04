@@ -75,6 +75,8 @@ bohr_radius     = pars.bohr_radius;
 noiseFrac       = pars.noiseFrac;       % Normalised size of added noise
 noiseStdDevs    = pars.noiseStdDevs;    % Std devs in r and z (respectively) for gaussian modulation of noise spatial frequencies
 
+% Waveguide tile
+wgTilt          = pars.wgTilt;
 
 % Determine if we are finding groundstate or propagating
 propMode        = pars.propMode;
@@ -193,21 +195,8 @@ t       = 0:abs(dt):Tmax;
 n_t     = numel(t);
 
 % Construct potential for propagation
-[X,Y,Z]         = meshgrid(x,y,z);
-if gravityOn == true
-    % Shift potential such that ground state is near centre
-    yShift          = gDQS/(omega_y^2*Length);
-    trap_harmonic   = 0.5*((omega_x*Time*X).^2 + (omega_y*Time*(Y- yShift)).^2 + (omega_z*Time*Z).^2);
-    potential85     = trap_harmonic + m85*gDQS*Y*Length/Energy;
-    potential87     = m87/m85*trap_harmonic + m87*gDQS*Y*Length/Energy;
-    
-    % Use unshifted potential for ansatz
-    trap_harmonic   = 0.5*((omega_x*Time*X).^2 + (omega_y*Time*Y).^2 + (omega_z*Time*Z).^2);
-else
-    trap_harmonic   = 0.5*((omega_x*Time*X).^2 + (omega_y*Time*Y).^2 + (omega_z*Time*Z).^2);
-    potential85     = trap_harmonic;
-    potential87     = m87/m85*trap_harmonic;
-end
+[X,Y,Z]                                         = meshgrid(x,y,z);
+[potential85,potential87,trap_harmonic]         = getPotential(omega_x,omega_y,omega_z);
 
 % Set up state
 switch propMode
@@ -252,6 +241,10 @@ switch propMode
             case 'gaussian'
                 ps2_87      =   (exp(-(Z-20e-6/Length).^2/(2*(10e-6/Length)^2)) + exp(-(Z+20e-6/Length).^2/(2*(10e-6/Length)^2))).*...
                     exp(-(X.^2+Y.^2)/(2*(2e-6/Length)^2));
+                
+            case 'shift'
+                ps2_87 = circshift(real(sqrt((mu87-trap_harmonic)/abs(UaTF_87))),5,3);
+                ps2_85 = circshift(ps2_85,-5,3);
         end
     case 'prop'
         % Load initial state
@@ -356,8 +349,8 @@ Nlist_85                    = n85;
 Nlist_87                    = n87;
 
 [E_85,E_87]                 = getE;
-Elist_85                    = NaN;
-Elist_87                    = NaN;
+Elist_85                    = 0;%NaN;
+Elist_87                    = 0;%NaN;
 
 [widths,coms]               = getMoments;
 width_x_list_85             = widths(1,1);
@@ -454,7 +447,7 @@ marg_w      = [0.14,0.0];
     %% Energy
     subtightplot(3,5,5,stp);
     plot_Elist_85 = plot(time_vec,Elist_85,'LineWidth',2);
-    set(gca,'yscale','log');
+    %set(gca,'yscale','log');
     hold on
     plot_Elist_87 = plot(time_vec,Elist_87,'LineWidth',2);
     plot_Etotal   = plot(time_vec,Elist_87+Elist_85,'LineWidth',2);
@@ -682,7 +675,7 @@ marg_w      = [0.14,0.0];
         grid on
     end
 
-drawnow 
+drawnow
 
 %% PUSH ARRAYS TO GPU
 if CUDA_flag == true
@@ -838,6 +831,32 @@ fprintf('Saving . . . ')
 fprintf('Done\n\n')
 
 %% AUXILIARY FUNCTIONS
+    % Get potentials
+    function  [p85,p87,trap] =  getPotential(omega_x,omega_y,omega_z)
+        if wgTilt==0
+            zPart       = (omega_z*Time*Z).^2;
+        else
+            z_pot       = (omega_z*Time*z).^2;
+            z_rot       = z*cos(wgTilt) - z_pot*sin(wgTilt);
+            z_pot_rot   = z*sin(wgTilt) + z_pot*cos(wgTilt);
+            zPart       = interp1(z_rot,z_pot_rot,z,'spline');
+            [~,~,zPart] = meshgrid(x,y,zPart);
+        end
+        if gravityOn == true
+            yShift          = gDQS/(omega_y^2*Length);
+            trapCorrection  = m85*gDQS*Y*Length/Energy;
+        else
+            yShift          = 0;
+            trapCorrection  = 0;
+        end
+        p85     = 0.5*((omega_x*Time*X).^2 + (omega_y*Time*(Y-yShift)).^2 + zPart)+ trapCorrection;
+        p87     = m87/m85*p85;
+        
+        % Use unshifted potential for ansatz
+        trap   = 0.5*((omega_x*Time*X).^2 + (omega_y*Time*Y).^2 + zPart);
+    end
+
+
     % get number of particles by integrating intensity
     function [n_85,n_87] = getN
         n_85 = trapz(x,trapz(y,trapz(z,abs(ps2_85).^2,3),1),2);
@@ -870,21 +889,25 @@ fprintf('Done\n\n')
     function [E_85,E_87] = getE
         % Get per-particle mean field (non-kinetic energy). Check interaction energy!!!
         warning('off','all')
+        [fx,fy,fz] = gradient(ps2_85_data,x,y,z);
+        KE         = 1/2*(abs(fx).^2 + abs(fy).^2 + abs(fz).^2);
         eDens_85=   real(potential85).*abs(ps2_85_data).^2 + ...
                     Ua85/2*abs(ps2_85_data).^4 + ...
-                    Ua8587/2*abs(ps2_85_data).^2.*abs(ps2_87_data).^2;% + ...
-                    %1/2*abs(gradient(ps2_85_data,x,y,z)).^2;
+                    Ua8587/2*abs(ps2_85_data).^2.*abs(ps2_87_data).^2 + ...
+                    KE;
+                
+        %eDens_85   = KE;
+                
+        [fx,fy,fz] = gradient(ps2_87_data,x,y,z);
+        KE         = m85/(2*m87)*(abs(fx).^2 + abs(fy).^2 + abs(fz).^2);
         eDens_87=   m87/m85*real(potential87).*abs(ps2_87_data).^2 + ...
                     Ua87/2*abs(ps2_87_data).^4 + ...
-                    Ua8587/2*abs(ps2_85_data).^2.*abs(ps2_87_data).^2;%+ ...
-                    %m85/(2*m87)*abs(gradient(ps2_87_data,x,y,z)).^2;
+                    Ua8587/2*abs(ps2_85_data).^2.*abs(ps2_87_data).^2 + ...
+                    KE;
+        %eDens_87   = KE;
         %hbar^2/(2*m)*abs(gradient(ps2_data,r,z)).^2 ...   % Kinetic term. Check grad is correct
         E_85    = trapz(x,trapz(y,trapz(z,eDens_85,3),1),2);             
-        E_87    = trapz(x,trapz(y,trapz(z,eDens_87,3),1),2);  
-%         if CUDA_flag == true
-%            E_85     = gather(E_85);
-%            E_87     = gather(E_87);
-%         end
+        E_87    = trapz(x,trapz(y,trapz(z,eDens_87,3),1),2);
     end
 
     function [widths,coms] = getMoments
@@ -1076,6 +1099,13 @@ fprintf('Done\n\n')
             [E_85,E_87]        = getE;
             Elist_85(end+1)    = gather(E_85);
             Elist_87(end+1)    = gather(E_87);
+%             Eplot85            = [0,diff(Elist_85)];
+%             Eplot85            = sign(Eplot85).*log(abs(Eplot85));
+%             Eplot87            = [0,diff(Elist_87)];
+%             Eplot87            = sign(Eplot87).*log(abs(Eplot87));
+%             set(plot_Elist_85,'XData',time_vec,'YData',Eplot85);
+%             set(plot_Elist_87,'XData',time_vec,'YData',Eplot87);
+%             set(plot_Etotal,'XData',time_vec,'YData',Eplot85+Eplot87);
             set(plot_Elist_85,'XData',time_vec,'YData',Elist_85);
             set(plot_Elist_87,'XData',time_vec,'YData',Elist_87);
             set(plot_Etotal,'XData',time_vec,'YData',Elist_87+Elist_85);
