@@ -1032,94 +1032,97 @@ fprintf('Done\n\n')
         width_z_exp  = trapz(z,((z.^2)'.*(2*pi*trapz(r,R.*abs(ps2_87_exp).^2,2)))/n87)*Length*10^6-com_z_exp^2;
         width_r_exp  = trapz([-fliplr(r) r],[-fliplr(r) r].^2.*(trapz(z,[fliplr(abs(ps2_87_exp).^2) abs(ps2_87_exp).^2]))/n87)*(Length*10^6)^2;
     end
+
+    function [g85,g87] = gpeFun(p85,p87)
+        d85     = abs(p85).^2;
+        d87     = abs(p87).^2;
+        g85     = (1i*((-Ua85*d85-Ua8587*d87-G3*d85.^2-potential85).*p85))*dt;
+        g87     = (1i*((-Ua87*d87-Ua8587*d85-G3*d87.^2-potential87).*p87))*dt;
+    end
+
+    function updateDt(newDt)
+        dt              = newDt;
+        dtList(end+1)   = abs(dt); % CREATE ARRAYS FOR THESE
+        dtTime(end+1)   = dtTime(end)+abs(dt)*Time;
+        disp_op85       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
+        disp_op87       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2)*m85/m87);
+    end
     
 %% PROPAGATORS
     % Propagate ps2 (combined) state by 1dt
     function propState
-        % 1st half of dispersion
-        % Apply operator
-        ps2_85     = disp_op85.*ps2_85;
-        ps2_87     = disp_op87.*ps2_87;
+        ps2_85_old = ps2_85;
+        ps2_87_old = ps2_87;
         
-        % UnHankel and UnFFT
-        ps2_85     = ifftn(ps2_85);
-        ps2_87     = ifftn(ps2_87);  
-    
-        % Interaction (RK4)
-        dens85    = abs(ps2_85).^2;
-        dens87    = abs(ps2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*ps2_85))*dt;
-        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*ps2_87))*dt;
-        ps2_85_out= A2_85;
-        ps2_87_out= A2_87;
+        % CHECK WHILE LOOP AND DT UPDATE WORKS
+        while try_again_flag == false
+            % 1st half of dispersion
+            % Apply operator
+            ps2_85     = disp_op85.*ps2_85;
+            ps2_87     = disp_op87.*ps2_87;
 
-        dens85    = abs(ps2_85+1/2*A2_85).^2;
-        dens87    = abs(ps2_87+1/2*A2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*A2_85)))*dt;
-        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*A2_87)))*dt;
-        ps2_85_out= ps2_85_out + 2*A2_85;
-        ps2_87_out= ps2_87_out + 2*A2_87;
+            % UnHankel and UnFFT
+            ps2_85     = ifftn(ps2_85);
+            ps2_87     = ifftn(ps2_87);  
 
-        dens85    = abs(ps2_85+1/2*A2_85).^2;
-        dens87    = abs(ps2_87+1/2*A2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*A2_85)))*dt;
-        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*A2_87)))*dt;
-        ps2_85_out= ps2_85_out + 2*A2_85;
-        ps2_87_out= ps2_87_out + 2*A2_87;
+            % Interaction (ARK45)
+            [A85,A87]   = gpeFun(ps2_85                                                                                                                 , ps2_87);
+            [B85,B87]   = gpeFun(ps2_85 +          1/5*A85                                                                                              , ps2_87 +       1/5*A87);
+            [C85,C87]   = gpeFun(ps2_85 +         3/40*A85 +       9/40*B85                                                                             , ps2_87 +       3/40*A87 +       9/40*B87);
+            [D85,D87]   = gpeFun(ps2_85 +        44/45*A85 -      56/15*B85 +       32/9*C85                                                            , ps2_87 +      44/45*A87 -      56/15*B87 +       32/9*C87);
+            [E85,E87]   = gpeFun(ps2_85 +   19372/6561*A85 - 25360/2187*B85 + 64448/6561*C85 - 212/729*D85                                              , ps2_87 + 19372/6561*A87 - 25360/2187*B87 + 64448/6561*C87 -   212/729*D87);
+            [F85,F87]   = gpeFun(ps2_85 +    9017/3168*A85 -     355/33*B85 + 46732/5247*C85 +	49/176*D85 -    5103/18656*E85                          , ps2_87 +  9017/3168*A87 -     355/33*B87 + 46732/5247*C87 +	49/176*D87 -     5103/18656*E87);
+            % 5th, 4th order estimates
+            [G85,G87]   = gpeFun(ps2_85 +       35/384*A85 +          0*B85 +   500/1113*C85 + 125/192*D85 -     2187/6784*E85 + 11/84*F85              , ps2_87 +     35/384*A87 +          0*B87 +   500/1113*C87 +   125/192*D87 -     2187/6784*E87 +    11/84*F87);
+            [H85,H87]   = gpeFun(ps2_85 +   5179/57600*A85 +          0*B85 + 7571/16695*C85 + 393/640*D85 -  92097/339200*E85 + 187/2100*F85 + 1/40*G85, ps2_87 + 5179/57600*A87 +          0*B87 + 7571/16695*C87 +   393/640*D87 -  92097/339200*E87 + 187/2100*F87 + 1/40*G87);
 
-        dens85    = abs(ps2_85+A2_85).^2;
-        dens87    = abs(ps2_87+A2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+A2_85)))*dt;
-        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+A2_87)))*dt;
+            err85 = sum(abs(G85(:)-H85(:)))/numel(G85);
+            err87 = sum(abs(G87(:)-H87(:)))/numel(G87);
+            s     = min((dt*pars.tol/(2*(Tmax)*[err85,err87])).^(1/3));
+            
+            % FIX PS2 ASSIGNMENTS
+            if s < 1
+                % Previous step was too large. Halve and try again.
+                updateDt(0.5*dt)
+                ps2             = ps2_old;
+                try_again_flag  = true;
+            elseif s>2
+                updateTime
+                % Previous step was too small. Update ps2 and double step-size for next step
+                updateDt(2*dt)
+                ps2             = ps2 + ps2_Hi;
+                try_again_flag  = false;updateTime
+            else
+                updateTime
+                % Step-size was about right. Update ps2 and leave dt unchanged.
+                ps2             = ps2 + ps2_Hi;
+                try_again_flag  = false;
+            end
 
-        ps2_85    = ps2_85+1/6*(ps2_85_out + A2_85);
-        ps2_87    = ps2_87+1/6*(ps2_87_out + A2_87);
-        
-        % Interaction (RK4)
-%         dens85    = abs(ps2_85).^2;
-%         dens87    = abs(ps2_87).^2;
-%         A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*ps2_85))*dt;
-%         A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*ps2_87))*dt;
-% 
-%         dens85    = abs(ps2_85+1/2*A2_85).^2;
-%         dens87    = abs(ps2_87+1/2*A2_87).^2;
-%         B2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*A2_85)))*dt;
-%         B2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*A2_87)))*dt;
-% 
-%         dens85    = abs(ps2_85+1/2*B2_85).^2;
-%         dens87    = abs(ps2_87+1/2*B2_87).^2;
-%         C2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*B2_85)))*dt;
-%         C2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*B2_87)))*dt;
-% 
-%         dens85    = abs(ps2_85+C2_85).^2;
-%         dens87    = abs(ps2_87+C2_87).^2;
-%         D2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+C2_85)))*dt;
-%         D2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+C2_87)))*dt;
-% 
-%         ps2_85    = ps2_85+1/6*(A2_85+2*B2_85+2*C2_85+D2_85);
-%         ps2_87    = ps2_87+1/6*(A2_87+2*B2_87+2*C2_87+D2_87);
-%         
-        % Renormalise
-        if strcmp(propMode,'init') == true
-            [n_85,n_87]  = getN;
-            ps2_85     = ps2_85 * sqrt(N_85/n_85);
-            ps2_87     = ps2_87 * sqrt(N_87/n_87);
+            if try_again_flag == false
+                % Renormalise
+                if strcmp(propMode,'init') == true
+                    [n_85,n_87]  = getN;
+                    ps2_85     = ps2_85 * sqrt(N_85/n_85);
+                    ps2_87     = ps2_87 * sqrt(N_87/n_87);
+                end
+
+                % Apply lossy boundary
+                if bdd_on == true
+                    ps2_85     = ps2_85.*losses;
+                    ps2_87     = ps2_87.*losses;
+                end
+
+                % 2nd half of dispersion
+                % FFT and Hankel
+                ps2_85     = fftn(ps2_85);
+                ps2_87     = fftn(ps2_87);
+
+                % Apply operator
+                ps2_85     = disp_op85.*ps2_85;
+                ps2_87     = disp_op87.*ps2_87;
+            end
         end
-        
-        % Apply lossy boundary
-        if bdd_on == true
-            ps2_85     = ps2_85.*losses;
-            ps2_87     = ps2_87.*losses;
-        end
-        
-        % 2nd half of dispersion
-        % FFT and Hankel
-        ps2_85     = fftn(ps2_85);
-        ps2_87     = fftn(ps2_87);
-        
-        % Apply operator
-        ps2_85     = disp_op85.*ps2_85;
-        ps2_87     = disp_op87.*ps2_87;
     end
 
 %% FIGURE HANDLING
