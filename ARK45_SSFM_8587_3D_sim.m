@@ -1,4 +1,4 @@
-function CQSSFM_8587_3D_sim(pars)
+function ARK45_SSFM_8587_3D_sim(pars)
 %% Simulates interaction between an 85 and 87 condensate
 % Accepts 'init','prop' as modes
 % Callable function for propagating a groundstate using cylindrically 
@@ -15,10 +15,14 @@ function CQSSFM_8587_3D_sim(pars)
 
 % Are there loss terms for Rb87?
 
-% TO DO
-%   - update figures for 3d
-%   - update functions for 3d
-%   - reduce mem footprint (simpler rk4, remove psi/psi_data
+% Parameter for number of samples to take should be fixed
+% need to include taking data at fixed time steps
+% Add half sine ramp
+
+% Put back time vector for updatedt
+% set up figure for dt vs time
+% 
+
 
 %% UNLOAD FROM PARAMETER STRUCTURE
 
@@ -58,7 +62,7 @@ Tmax_real_prop  = pars.Tmax_real_prop;
 dt_real_prop    = pars.dt_real_prop;
 
 gravityOn       = pars.gravityOn;
-
+sampleTimes     = pars.sampleTimes;
 bdd_on          = pars.bdd_on;                     
 CUDA_flag       = pars.CUDA_flag;               
 useLogScale     = pars.useLogScale;           
@@ -348,10 +352,7 @@ end
 %% SETUP RAMP STUFF
 if RampOn == true
     rampTime    = rampTime_real/Time;
-    rampSteps   = ceil(rampTime/dt);
-    rampTime_vec= linspace(0,rampTime,rampSteps);
-    rampScat_vec= linspace(scat_init_85,scat_prop_85,rampSteps);
-    rampUa_vec  = UaUnit85/Length^3/Energy*(rampScat_vec/scat_init_85);
+    rampUa_fun  = @(x) UaUnit85/Length^3/Energy*((scat_init_85 + x*(scat_prop_85-scat_init_85)/rampTime)/scat_init_85);
 end
 
 %% PREPARE FOR PROPAGATION
@@ -399,6 +400,7 @@ com_y_list_87               = coms(2,2);
 com_z_list_87               = coms(3,2);
 
 time_vec                    = 0;
+dtList                      = [];
 
 % Get data of expanded cloud
 if pars.ExpandOn == true
@@ -722,7 +724,7 @@ marg_w      = [0.14,0.0];
         xlabel('\textbf{Time}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
         ylabel('\textbf{Ua}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
         xlim([0,Ttotal])
-        ylim(sort([0.9*min(rampUa_vec),1.1*max(rampUa_vec)]))
+        %ylim(sort([0.9*min(rampUa_vec),1.1*max(rampUa_vec)]))
         grid on
     end
 
@@ -768,31 +770,72 @@ if writeVideo_flag == true && pars.figuresOn == true
     vidObj  = VideoWriter([save_file,'_video.mj2'],'Archival');
     open(vidObj)
 end
+iter = 1;
 
-for iter = 2:n_t
-    if RampOn == true
-        if iter<=rampSteps
-            Ua85  = rampUa_vec(iter);
+% INIT evolution
+if strcmp(propMode,'init') == true
+    while tNow ~= Tmax
+        tNow        = time_vec(end);
+        propState_RK4
+        
+        % Update plot
+        if mod(plotIter,data_step) == 0
+            updatePlots
+            
+            % Write to video
+            if writeVideo_flag == true && pars.figuresOn == true
+                frame = getframe(main_fig);
+                writeVideo(vidObj,frame);
+            end
         end
+        
+        % Update progress
+        fprintf(repmat('\b',1,length(str1)+1));
+        str1 = sprintf('%2.2f',timeNow/Tmax*100);
+        fprintf([str1,'%%']);
+        plotIter = plotIter+1;
     end
-    % Propagate state by 1dt
-    propState
-    
-    % Update plot
-    if mod(plotIter,data_step) == 0
+end
+
+% PROP evolution
+sampleTimeNextInd   = 1;
+if strcmp(propMode,'init') == true
+    while sampleTimeNextInd <= numel(sampleTimes)
+        % Get next sample time
+        tNext   = sampleTimes(sampleTimeNextInd)/Time;
+        sampleTimeNextInd   = sampleTimeNextInd + 1;
+        getSampleFlag   = false;
+        
+        % Evolve system until sample time
+        while getSampleFlag == false
+            tNow        = time_vec(end);
+            if RampOn == true
+                Ua85    = rampUa_fun(tNow);
+            end
+            
+            % Propagate state by 1dt
+            propState_ARK45
+            
+            % Update time
+            dtList(end+1)   = abs(dt);
+            time_vec(end+1) = time_vec(end)+abs(dt)*Time;
+            
+            % Update progress
+            fprintf(repmat('\b',1,length(str1)+1));
+            str1 = sprintf('%2.2f',tNow/n_t*100);
+            fprintf([str1,'%%']);
+            plotIter = plotIter+1;
+        end
+        
+        % Get sampple
         updatePlots
+        
         % Write to video
         if writeVideo_flag == true && pars.figuresOn == true
             frame = getframe(main_fig);
             writeVideo(vidObj,frame);
         end
     end
-    
-    % Update progress
-    fprintf(repmat('\b',1,length(str1)+1));
-    str1 = sprintf('%2.2f',iter/n_t*100);
-    fprintf([str1,'%%']);
-    plotIter = plotIter+1;
 end
 
 % Close Video
@@ -1042,19 +1085,72 @@ fprintf('Done\n\n')
 
     function updateDt(newDt)
         dt              = newDt;
-        dtList(end+1)   = abs(dt); % CREATE ARRAYS FOR THESE
-        dtTime(end+1)   = dtTime(end)+abs(dt)*Time;
         disp_op85       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
         disp_op87       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2)*m85/m87);
     end
     
 %% PROPAGATORS
     % Propagate ps2 (combined) state by 1dt
-    function propState
+    function propState_RK4
+        % Interaction (RK4)
+        dens85    = abs(ps2_85).^2;
+        dens87    = abs(ps2_87).^2;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*ps2_85))*dt;
+        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*ps2_87))*dt;
+        ps2_85_out= A2_85;
+        ps2_87_out= A2_87;
+
+        dens85    = abs(ps2_85+1/2*A2_85).^2;
+        dens87    = abs(ps2_87+1/2*A2_87).^2;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*A2_85)))*dt;
+        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*A2_87)))*dt;
+        ps2_85_out= ps2_85_out + 2*A2_85;
+        ps2_87_out= ps2_87_out + 2*A2_87;
+
+        dens85    = abs(ps2_85+1/2*A2_85).^2;
+        dens87    = abs(ps2_87+1/2*A2_87).^2;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*A2_85)))*dt;
+        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*A2_87)))*dt;
+        ps2_85_out= ps2_85_out + 2*A2_85;
+        ps2_87_out= ps2_87_out + 2*A2_87;
+
+        dens85    = abs(ps2_85+A2_85).^2;
+        dens87    = abs(ps2_87+A2_87).^2;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+A2_85)))*dt;
+        A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+A2_87)))*dt;
+
+        ps2_85    = ps2_85+1/6*(ps2_85_out + A2_85);
+        ps2_87    = ps2_87+1/6*(ps2_87_out + A2_87);
+        
+        % Renormalise
+        if strcmp(propMode,'init') == true
+            [n_85,n_87]  = getN;
+            ps2_85     = ps2_85 * sqrt(N_85/n_85);
+            ps2_87     = ps2_87 * sqrt(N_87/n_87);
+        end
+        
+        % Apply lossy boundary
+        if bdd_on == true
+            ps2_85     = ps2_85.*losses;
+            ps2_87     = ps2_87.*losses;
+        end
+        
+        % 2nd half of dispersion
+        % FFT and Hankel
+        ps2_85     = fftn(ps2_85);
+        ps2_87     = fftn(ps2_87);
+        
+        % Apply operator
+        ps2_85     = disp_op85.*ps2_85;
+        ps2_87     = disp_op87.*ps2_87;
+    end
+    
+    function propState_ARK45
         ps2_85_old = ps2_85;
         ps2_87_old = ps2_87;
         
         % CHECK WHILE LOOP AND DT UPDATE WORKS
+        try_again_flag = false;
         while try_again_flag == false
             % 1st half of dispersion
             % Apply operator
@@ -1084,18 +1180,32 @@ fprintf('Done\n\n')
             if s < 1
                 % Previous step was too large. Halve and try again.
                 updateDt(0.5*dt)
-                ps2             = ps2_old;
+                ps2_85  = ps2_8_old5;
+                ps2_87  = ps2_87_old;
                 try_again_flag  = true;
             elseif s>2
                 updateTime
                 % Previous step was too small. Update ps2 and double step-size for next step
-                updateDt(2*dt)
-                ps2             = ps2 + ps2_Hi;
-                try_again_flag  = false;updateTime
+                if tNext-tNow < 2*dt
+                    updateDt(tNext-tNow);
+                    getSampleFlag   = true;
+                else
+                    updateDt(2*dt);
+                end
+                ps2_85          = ps2_85 + G85;
+                ps2_87          = ps2_87 + G87;
+                try_again_flag  = false;
             else
                 updateTime
-                % Step-size was about right. Update ps2 and leave dt unchanged.
-                ps2             = ps2 + ps2_Hi;
+                if tNext-tNow < dt
+                    updateDt(tNext-tNow);
+                    getSampleFlag   = true;
+                else
+                    updateDt(2*dt);
+                end
+                % Step-size was about right. Update ps2 and leave dt unchanged, unless getting sample.
+                ps2_85          = ps2_85 + G85;
+                ps2_87          = ps2_87 + G87;
                 try_again_flag  = false;
             end
 
