@@ -19,10 +19,11 @@ function ARK45_SSFM_8587_3D_sim(pars)
 % need to include taking data at fixed time steps
 % Add half sine ramp
 
-% Put back time vector for updatedt
-% set up figure for dt vs time
-% 
-
+% Put back time vector for updatedt Done
+% set up figure for dt vs time Done
+% fix figure arraay to accommodate new fiigures Done
+% fix aprameters of sim_caller 
+% make sure samppling works properly
 
 %% UNLOAD FROM PARAMETER STRUCTURE
 
@@ -69,6 +70,9 @@ useLogScale     = pars.useLogScale;
 saveImages3D    = pars.saveImages3D;
 saveImages2D    = pars.saveImages2D;
 
+% ARK vars
+arkStepsWithoutChange = 0;
+
 % Physical constants
 hbar            = pars.hbar;
 m85             = pars.m85;
@@ -80,8 +84,12 @@ bohr_radius     = pars.bohr_radius;
 noiseFrac       = pars.noiseFrac;       % Normalised size of added noise
 noiseStdDevs    = pars.noiseStdDevs;    % Std devs in r and z (respectively) for gaussian modulation of noise spatial frequencies
 
-% Waveguide tile
+% Waveguide tilt
 wgTilt          = pars.wgTilt;
+
+% Clean up sampleTimes (sort and remove zeros)
+sampleTimes(sampleTimes==0) = [];
+sampleTimes     = sort(sampleTimes);
 
 % Determine if we are finding groundstate or propagating
 propMode        = pars.propMode;
@@ -365,7 +373,9 @@ if pars.ExpandOn == true
 end
 
 % Clear K
-clear Kx Ky Kz
+if strcmp(propMode,'prop') == false
+    clear Kx Ky Kz
+end
 
 %% SETUP MONITORED QUANTITIES
 main_fig = figure(1);
@@ -400,7 +410,8 @@ com_y_list_87               = coms(2,2);
 com_z_list_87               = coms(3,2);
 
 time_vec                    = 0;
-dtList                      = [];
+dtList                      = dt;
+dtTimeList                  = 0;
 
 % Get data of expanded cloud
 if pars.ExpandOn == true
@@ -478,7 +489,7 @@ marg_h      = 1*[0.05,0.05];
 marg_w      = [0.14,0.0];
 
     %% Particle count
-    subtightplot(3,5,4,stp);
+    subtightplot(4,4,8,stp);
     hold on
     plot_Nlist_85 = plot(time_vec,Nlist_85,'LineWidth',2);
     plot_Nlist_87 = plot(time_vec,Nlist_87,'LineWidth',2);
@@ -498,7 +509,7 @@ marg_w      = [0.14,0.0];
     ylim(1.2*[0,max([N_85,N_87])])
 
     %% Energy
-    subtightplot(3,5,5,stp);
+    subtightplot(4,4,4,stp);
     plot_Elist_85 = plot(time_vec,Elist_85,'LineWidth',2);
     %set(gca,'yscale','log');
     hold on
@@ -513,7 +524,7 @@ marg_w      = [0.14,0.0];
     box on
 
     %% Width x
-    subtightplot(3,5,10,stp)
+    subtightplot(4,4,13,stp)
     hold on
     plot_width_x_85 = plot(time_vec,width_x_list_85,'LineWidth',2);
     plot_width_x_87 = plot(time_vec,width_x_list_87,'LineWidth',2);
@@ -532,7 +543,7 @@ marg_w      = [0.14,0.0];
     end
 
     %% Width z
-    subtightplot(3,5,9,stp);
+    subtightplot(4,4,14,stp);
     hold on
     plot_width_z_85 = plot(time_vec,width_z_list_85,'LineWidth',2);
     plot_width_z_87 = plot(time_vec,width_z_list_87,'LineWidth',2);
@@ -551,7 +562,7 @@ marg_w      = [0.14,0.0];
     end
 
     %% Centre-of-Mass in z
-    subtightplot(3,5,14,stp);
+    subtightplot(4,4,15,stp);
     hold on
     plot_com_z_85      = plot(time_vec,com_z_list_85,'LineWidth',2);
     plot_com_z_87      = plot(time_vec,com_z_list_87,'LineWidth',2);
@@ -570,11 +581,11 @@ marg_w      = [0.14,0.0];
     box on
 
     %% Create unexpanded 85, 87 z-x projection
-    ps2_85_proj_zx  = (abs(squeeze(sum(ps2_85,1))).^2)';
-    ps2_87_proj_zx  = (abs(squeeze(sum(ps2_87,1))).^2)';
+    ps2_85_proj_zx  = (abs(squeeze(sum(ps2_85,1))).^2);
+    ps2_87_proj_zx  = (abs(squeeze(sum(ps2_87,1))).^2);
     
     % 85
-    subtightplot(3,5,[1,6],stp);
+    subtightplot(4,4,[1,2],stp);
     if useLogScale == true
         plot_density_85_zx = imagesc(x*Length*10^6,z*Length*10^6, log(1+ps2_85_proj_zx));
     else
@@ -588,7 +599,7 @@ marg_w      = [0.14,0.0];
     plot_density_title_85_zx = title('\textbf{\boldmath$^{85}$ RbDensity, \boldmath$t = 0$}','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex'); 
     
     % 87
-    subtightplot(3,5,[2,7],stp);
+    subtightplot(4,4,[5,6],stp);
     if useLogScale == true
         plot_density_87_zx = imagesc(x*Length*10^6,z*Length*10^6, log(1+ps2_87_proj_zx));
     else
@@ -602,7 +613,7 @@ marg_w      = [0.14,0.0];
     plot_density_title_87_zx = title('\textbf{\boldmath$^{87}$Rb Density, \boldmath$t = 0$}','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex'); 
     
     % 85, 87
-    subtightplot(3,5,[3,8],stp);
+    subtightplot(4,4,[9,10],stp);
     ylabel('\textbf{z ($\mu$m)}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
     xlabel('\textbf{x ($\mu$m)}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
     axis tight;
@@ -631,7 +642,7 @@ marg_w      = [0.14,0.0];
     ps2_87_proj_xy  = abs(squeeze(sum(ps2_87,3))).^2;
     
     % 85
-    subtightplot(3,5,11,stp);
+    subtightplot(4,4,3,stp);
     if useLogScale == true
         plot_density_85_xy = imagesc(x*Length*10^6,y*Length*10^6, log(1+ps2_85_proj_xy));
     else
@@ -645,7 +656,7 @@ marg_w      = [0.14,0.0];
     plot_density_title_85_xy = title('\textbf{\boldmath$^{85}$Rb Density, \boldmath$t = 0$}','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex'); 
     
     % 87
-    subtightplot(3,5,12,stp);
+    subtightplot(4,4,7,stp);
     if useLogScale == true
         plot_density_87_xy = imagesc(x*Length*10^6,y*Length*10^6, log(1+ps2_87_proj_xy));
     else
@@ -659,7 +670,7 @@ marg_w      = [0.14,0.0];
     plot_density_title_87_xy = title('\textbf{\boldmath$^{87}$Rb Density, \boldmath$t = 0$}','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex'); 
     
     % 85, 87
-    subtightplot(3,5,13,stp);
+    subtightplot(4,4,11,stp);
     
     ylabel('\textbf{z ($\mu$m)}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
     xlabel('\textbf{x ($\mu$m)}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
@@ -715,9 +726,9 @@ marg_w      = [0.14,0.0];
 
 
 
-    % Plot 2-Body interaction strength
+    %% Plot 2-Body interaction strength
     if RampOn == true
-        subtightplot(3,5,15,stp)
+        subtightplot(4,4,16,stp)
         Ua_list = UaUnit85/Length^3/Energy;
         h_ua    = plot(0,Ua_list,'LineWidth',2);
         title('2-Body Interaction Strength')
@@ -726,6 +737,20 @@ marg_w      = [0.14,0.0];
         xlim([0,Ttotal])
         %ylim(sort([0.9*min(rampUa_vec),1.1*max(rampUa_vec)]))
         grid on
+    end
+    
+    %% Plot dt
+    if strcmp(propMode,'prop') == true
+        subtightplot(4,4,12,stp);
+        hold on
+        plot_dtList = plot(dtTimeList,dtList,'LineWidth',2);
+        xlim([0,Ttotal])
+        grid on
+        title('\textbf{dt}','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+        xlabel('\textbf{Time}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+        ylabel('\textbf{Step size (s)}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+        set(gca,'yscale','log')
+        box on 
     end
 
 drawnow
@@ -770,13 +795,17 @@ if writeVideo_flag == true && pars.figuresOn == true
     vidObj  = VideoWriter([save_file,'_video.mj2'],'Archival');
     open(vidObj)
 end
+tNow    = 0;
 iter = 1;
-
 % INIT evolution
 if strcmp(propMode,'init') == true
-    while tNow ~= Tmax
-        tNow        = time_vec(end);
+    while tNow <= Tmax + dt
+        
+        % Do 1 step
         propState_RK4
+        
+        % Update tNow
+        tNow        = tNow + abs(dt);
         
         % Update plot
         if mod(plotIter,data_step) == 0
@@ -791,43 +820,46 @@ if strcmp(propMode,'init') == true
         
         % Update progress
         fprintf(repmat('\b',1,length(str1)+1));
-        str1 = sprintf('%2.2f',timeNow/Tmax*100);
+        str1 = sprintf('%2.2f',tNow/Tmax*100);
         fprintf([str1,'%%']);
         plotIter = plotIter+1;
+        
+        
     end
 end
 
 % PROP evolution
 sampleTimeNextInd   = 1;
-if strcmp(propMode,'init') == true
+
+if strcmp(propMode,'prop') == true
     while sampleTimeNextInd <= numel(sampleTimes)
         % Get next sample time
         tNext   = sampleTimes(sampleTimeNextInd)/Time;
         sampleTimeNextInd   = sampleTimeNextInd + 1;
-        getSampleFlag   = false;
+        getSampleFlag       = false;
         
         % Evolve system until sample time
         while getSampleFlag == false
-            tNow        = time_vec(end);
             if RampOn == true
                 Ua85    = rampUa_fun(tNow);
             end
             
             % Propagate state by 1dt
             propState_ARK45
-            
-            % Update time
-            dtList(end+1)   = abs(dt);
-            time_vec(end+1) = time_vec(end)+abs(dt)*Time;
+            fprintf('Time   = %4.3e\n',tNow*Time)
+            fprintf('T2Step = %4.3e\n',(tNext-tNow)*Time)
+            pause(0.01)
+            % Update tNow
+            tNow    = tNow + abs(dt);
             
             % Update progress
-            fprintf(repmat('\b',1,length(str1)+1));
-            str1 = sprintf('%2.2f',tNow/n_t*100);
-            fprintf([str1,'%%']);
-            plotIter = plotIter+1;
+%             fprintf(repmat('\b',1,length(str1)+1));
+%             str1 = sprintf('%2.2f',tNow/n_t*100);
+%             fprintf([str1,'%%']);
+%             plotIter = plotIter+1;
         end
         
-        % Get sampple
+        % Get sample
         updatePlots
         
         % Write to video
@@ -1084,14 +1116,28 @@ fprintf('Done\n\n')
     end
 
     function updateDt(newDt)
-        dt              = newDt;
-        disp_op85       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
-        disp_op87       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2)*m85/m87);
+        % Update dt and dispersion operators
+%         dt              = newDt;
+%         disp_op85       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
+%         disp_op87       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2)*m85/m87);
+        
+        % Update dtList and dtTimeList
+        dtList(end+1)       = newDt;
+        dtTimeList(end+1)   = tNow*Time;
     end
     
 %% PROPAGATORS
     % Propagate ps2 (combined) state by 1dt
     function propState_RK4
+        % 1st half of dispersion
+            % Apply operator
+            ps2_85     = disp_op85.*ps2_85;
+            ps2_87     = disp_op87.*ps2_87;
+
+            % UnHankel and UnFFT
+            ps2_85     = ifftn(ps2_85);
+            ps2_87     = ifftn(ps2_87);
+
         % Interaction (RK4)
         dens85    = abs(ps2_85).^2;
         dens87    = abs(ps2_87).^2;
@@ -1150,8 +1196,8 @@ fprintf('Done\n\n')
         ps2_87_old = ps2_87;
         
         % CHECK WHILE LOOP AND DT UPDATE WORKS
-        try_again_flag = false;
-        while try_again_flag == false
+        try_again_flag = true;
+        while try_again_flag == true
             % 1st half of dispersion
             % Apply operator
             ps2_85     = disp_op85.*ps2_85;
@@ -1174,41 +1220,55 @@ fprintf('Done\n\n')
 
             err85 = sum(abs(G85(:)-H85(:)))/numel(G85);
             err87 = sum(abs(G87(:)-H87(:)))/numel(G87);
-            s     = min((dt*pars.tol/(2*(Tmax)*[err85,err87])).^(1/3));
+            s     = min((dt*pars.tol./(2*(Tmax)*[err85,err87])).^(1/3));
             
             % FIX PS2 ASSIGNMENTS
             if s < 1
                 % Previous step was too large. Halve and try again.
                 updateDt(0.5*dt)
-                ps2_85  = ps2_8_old5;
+                ps2_85  = ps2_85_old;
                 ps2_87  = ps2_87_old;
                 try_again_flag  = true;
-            elseif s>2
-                updateTime
+                fprintf('Reducing step \n')
+                
+                % Reset counter
+                arkStepsWithoutChange   = 0;
+                
+            elseif s>2 && arkStepsWithoutChange >= pars.ark_minStepsBeforeChangeDt
                 % Previous step was too small. Update ps2 and double step-size for next step
                 if tNext-tNow < 2*dt
                     updateDt(tNext-tNow);
                     getSampleFlag   = true;
+                    fprintf('Increasing step, but sampling \n')
                 else
                     updateDt(2*dt);
                 end
                 ps2_85          = ps2_85 + G85;
                 ps2_87          = ps2_87 + G87;
                 try_again_flag  = false;
+                fprintf('Increasing step \n')
+                
+                % Reset counter
+                arkStepsWithoutChange   = 0;
             else
-                updateTime
+                % Step-size was about right OR dt has been changed
+                % recently
+                % Update ps2 and leave dt unchanged, unless getting sample.
                 if tNext-tNow < dt
                     updateDt(tNext-tNow);
                     getSampleFlag   = true;
-                else
-                    updateDt(2*dt);
+                    fprintf('Keeping step, but sampling \n')
                 end
-                % Step-size was about right. Update ps2 and leave dt unchanged, unless getting sample.
+                
                 ps2_85          = ps2_85 + G85;
                 ps2_87          = ps2_87 + G87;
                 try_again_flag  = false;
+                fprintf('Keeping step \n')
+                
+                % Increment unchanged counter
+                arkStepsWithoutChange   = arkStepsWithoutChange + 1;
             end
-
+            try_again_flag = false;
             if try_again_flag == false
                 % Renormalise
                 if strcmp(propMode,'init') == true
@@ -1232,6 +1292,7 @@ fprintf('Done\n\n')
                 ps2_85     = disp_op85.*ps2_85;
                 ps2_87     = disp_op87.*ps2_87;
             end
+            fprintf('%4.3e\n',dt)
         end
     end
 
@@ -1266,8 +1327,8 @@ fprintf('Done\n\n')
             end
             
             % Update projections
-            ps2_85_proj_zx  = gather(abs(squeeze(sum(ps2_85_data,1))').^2);
-            ps2_87_proj_zx  = gather(abs(squeeze(sum(ps2_87_data,1))').^2);
+            ps2_85_proj_zx  = gather(abs(squeeze(sum(ps2_85_data,1))).^2);
+            ps2_87_proj_zx  = gather(abs(squeeze(sum(ps2_87_data,1))).^2);
             ps2_85_proj_xy  = gather(abs(squeeze(sum(ps2_85_data,3))).^2);
             ps2_87_proj_xy  = gather(abs(squeeze(sum(ps2_87_data,3))).^2);  
             
@@ -1291,8 +1352,12 @@ fprintf('Done\n\n')
             end
             
             % Update time
-            time_now        = t(iter)*Time;
-            time_vec(end+1) = time_now;
+            time_vec(end+1) = tNow*Time;
+            
+            % Update dt
+            if strcmp(propMode,'prop') == true
+                set(plot_dtList,'XData',dtTimeList,'YData',dtList);
+            end
             
             % Update penergy
             [E_85,E_87]        = getE;
@@ -1356,8 +1421,8 @@ fprintf('Done\n\n')
                     set(plot_density_85_xy,'CData',ps2_85_proj_xy);
                     set(plot_density_87_xy,'CData',ps2_87_proj_xy);
                 end
-                set(plot_density_title_85_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{85}$ Density, \\boldmath$t = %4.1f$ ms}',1000*time_now));
-                set(plot_density_title_87_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{87}$ Density, \\boldmath$t = %4.1f$ ms}',1000*time_now));
+                set(plot_density_title_85_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{85}$ Density, \\boldmath$t = %4.1f$ ms}',1000*tNow*Time));
+                set(plot_density_title_87_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{87}$ Density, \\boldmath$t = %4.1f$ ms}',1000*tNow*Time));
                 
                 % Update binary mixture images
                 % xz projection
@@ -1427,8 +1492,8 @@ fprintf('Done\n\n')
                     set(plot_density_exp_85,'CData',[fliplr(abs(ps2_85_exp).^2), abs(ps2_85_exp).^2]');
                     set(plot_density_exp_87,'CData',[fliplr(abs(ps2_87_exp).^2), abs(ps2_87_exp).^2]');
                 end
-                set(plot_density_exp_title_85,'String',sprintf('Expanded Rb85 Density @ t = %4.2e',time_now));
-                set(plot_density_exp_title_87,'String',sprintf('Expanded Rb87 Density @ t = %4.2e',time_now));
+                set(plot_density_exp_title_85,'String',sprintf('Expanded Rb85 Density @ t = %4.2e',tNow));
+                set(plot_density_exp_title_87,'String',sprintf('Expanded Rb87 Density @ t = %4.2e',tNow));
             end
             
             % Update Ua plot
