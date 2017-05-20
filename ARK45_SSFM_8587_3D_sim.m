@@ -447,7 +447,7 @@ end
 
 % Create storage for images
 if saveImages3D == true && strcmp(propMode,'init') == false
-   nImages            = ceil(n_t/data_step);
+   nImages            = numel(sampleTimes) + 1;
    imageArray85       = zeros(n_x,n_y,n_z,nImages) ;
    imageArray87       = zeros(n_x,n_y,n_z,nImages) ;   
    imageArray85(:,:,:,1)= ps2_85_data;
@@ -462,7 +462,7 @@ if saveImages3D == true && strcmp(propMode,'init') == false
 end
 
 if saveImages2D == true && strcmp(propMode,'init') == false
-    nImages            = ceil(n_t/data_step);
+    nImages            = numel(sampleTimes) + 1;
     imageArray85_xy     = zeros(n_x,n_y,nImages);
     imageArray87_xy     = zeros(n_x,n_y,nImages);
     imageArray85_zx     = zeros(n_z,n_x,nImages);   
@@ -1117,9 +1117,9 @@ fprintf('Done\n\n')
 
     function updateDt(newDt)
         % Update dt and dispersion operators
-%         dt              = newDt;
-%         disp_op85       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
-%         disp_op87       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2)*m85/m87);
+        dt              = newDt;
+        disp_op85       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
+        disp_op87       = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2)*m85/m87);
         
         % Update dtList and dtTimeList
         dtList(end+1)       = newDt;
@@ -1197,6 +1197,7 @@ fprintf('Done\n\n')
         
         % CHECK WHILE LOOP AND DT UPDATE WORKS
         try_again_flag = true;
+        dt_changed     = false;
         while try_again_flag == true
             % 1st half of dispersion
             % Apply operator
@@ -1215,12 +1216,12 @@ fprintf('Done\n\n')
             [E85,E87]   = gpeFun(ps2_85 +   19372/6561*A85 - 25360/2187*B85 + 64448/6561*C85 - 212/729*D85                                              , ps2_87 + 19372/6561*A87 - 25360/2187*B87 + 64448/6561*C87 -   212/729*D87);
             [F85,F87]   = gpeFun(ps2_85 +    9017/3168*A85 -     355/33*B85 + 46732/5247*C85 +	49/176*D85 -    5103/18656*E85                          , ps2_87 +  9017/3168*A87 -     355/33*B87 + 46732/5247*C87 +	49/176*D87 -     5103/18656*E87);
             % 5th, 4th order estimates
-            [G85,G87]   = gpeFun(ps2_85 +       35/384*A85 +          0*B85 +   500/1113*C85 + 125/192*D85 -     2187/6784*E85 + 11/84*F85              , ps2_87 +     35/384*A87 +          0*B87 +   500/1113*C87 +   125/192*D87 -     2187/6784*E87 +    11/84*F87);
+            [G85,G87]   = gpeFun(ps2_85 +       35/384*A85 +          0*B85 +   500/1113*C85 + 125/192*D85 -     2187/6784*E85 +    11/84*F85           , ps2_87 +     35/384*A87 +          0*B87 +   500/1113*C87 +   125/192*D87 -     2187/6784*E87 +    11/84*F87);
             [H85,H87]   = gpeFun(ps2_85 +   5179/57600*A85 +          0*B85 + 7571/16695*C85 + 393/640*D85 -  92097/339200*E85 + 187/2100*F85 + 1/40*G85, ps2_87 + 5179/57600*A87 +          0*B87 + 7571/16695*C87 +   393/640*D87 -  92097/339200*E87 + 187/2100*F87 + 1/40*G87);
 
-            err85 = sum(abs(G85(:)-H85(:)))/numel(G85);
-            err87 = sum(abs(G87(:)-H87(:)))/numel(G87);
-            s     = min((dt*pars.tol./(2*(Tmax)*[err85,err87])).^(1/3));
+            err85 = sum(abs(G85(:)-H85(:)));%/numel(G85);
+            err87 = sum(abs(G87(:)-H87(:)));%/numel(G87);
+            s     = min((dt*pars.tol./(2*(Tmax)*[err85,err87])).^(1/4));
             
             % FIX PS2 ASSIGNMENTS
             if s < 1
@@ -1236,17 +1237,17 @@ fprintf('Done\n\n')
                 
             elseif s>2 && arkStepsWithoutChange >= pars.ark_minStepsBeforeChangeDt
                 % Previous step was too small. Update ps2 and double step-size for next step
+                dt_changed      = true;
                 if tNext-tNow < 2*dt
-                    updateDt(tNext-tNow);
+                    dtNew           = (tNext-tNow);
                     getSampleFlag   = true;
                     fprintf('Increasing step, but sampling \n')
                 else
-                    updateDt(2*dt);
+                    dtNew           = 2*dt;
+                    fprintf('Increasing step \n')
                 end
-                ps2_85          = ps2_85 + G85;
-                ps2_87          = ps2_87 + G87;
                 try_again_flag  = false;
-                fprintf('Increasing step \n')
+                
                 
                 % Reset counter
                 arkStepsWithoutChange   = 0;
@@ -1255,21 +1256,24 @@ fprintf('Done\n\n')
                 % recently
                 % Update ps2 and leave dt unchanged, unless getting sample.
                 if tNext-tNow < dt
-                    updateDt(tNext-tNow);
+                    dt_changed      = true;
+                    dtNew           = (tNext-tNow);
                     getSampleFlag   = true;
                     fprintf('Keeping step, but sampling \n')
+                else
+                    fprintf('Keeping step \n')
                 end
-                
-                ps2_85          = ps2_85 + G85;
-                ps2_87          = ps2_87 + G87;
                 try_again_flag  = false;
-                fprintf('Keeping step \n')
                 
                 % Increment unchanged counter
                 arkStepsWithoutChange   = arkStepsWithoutChange + 1;
             end
-            try_again_flag = false;
+            
             if try_again_flag == false
+                % Advance
+                ps2_85          = ps2_85 + G85;
+                ps2_87          = ps2_87 + G87;
+                
                 % Renormalise
                 if strcmp(propMode,'init') == true
                     [n_85,n_87]  = getN;
@@ -1292,7 +1296,12 @@ fprintf('Done\n\n')
                 ps2_85     = disp_op85.*ps2_85;
                 ps2_87     = disp_op87.*ps2_87;
             end
-            fprintf('%4.3e\n',dt)
+            
+            fprintf('dt     = %4.3e\n',dt)
+        end
+        % Update dt
+        if dt_changed == true
+            updateDt(dtNew)
         end
     end
 
