@@ -272,8 +272,8 @@ switch propMode
                     exp(-(X.^2+Y.^2)/(2*(2e-6/Length)^2));
                 
             case 'shift'
-                ps2_87 = circshift(real(sqrt((mu87-trap87)/abs(UaTF_87))),pars.initModeVars(1),pars.initModeVars(3));
-                ps2_85 = circshift(ps2_85,pars.initModeVars(2),pars.initModeVars(3));
+                ps2_87 = circshift(real(sqrt((mu87-trap87)/abs(UaTF_87))),pars.initModeVars{2});
+                ps2_85 = circshift(ps2_85,pars.initModeVars{1});
         end
     case 'prop'
         % Load initial state
