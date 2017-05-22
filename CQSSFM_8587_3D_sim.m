@@ -1192,16 +1192,20 @@ fprintf('Done\n\n')
 %             set(plot_Elist_85,'XData',time_vec,'YData',Eplot85);
 %             set(plot_Elist_87,'XData',time_vec,'YData',Eplot87);
 %             set(plot_Etotal,'XData',time_vec,'YData',Eplot85+Eplot87);
-            set(plot_Elist_85,'XData',time_vec,'YData',Elist_85);
-            set(plot_Elist_87,'XData',time_vec,'YData',Elist_87);
-            set(plot_Etotal,'XData',time_vec,'YData',Elist_87+Elist_85);
+            if  pars.figuresOn == true
+                set(plot_Elist_85,'XData',time_vec,'YData',Elist_85);
+                set(plot_Elist_87,'XData',time_vec,'YData',Elist_87);
+                set(plot_Etotal,'XData',time_vec,'YData',Elist_87+Elist_85);
+            end
             
             % Update particle counts
             [n85,n87]          = getN_data;
             Nlist_85(end+1)    = gather(n85);
             Nlist_87(end+1)    = gather(n87);
-            set(plot_Nlist_85,'XData',time_vec,'YData',Nlist_85);
-            set(plot_Nlist_87,'XData',time_vec,'YData',Nlist_87);
+            if  pars.figuresOn == true
+                set(plot_Nlist_85,'XData',time_vec,'YData',Nlist_85);
+                set(plot_Nlist_87,'XData',time_vec,'YData',Nlist_87);
+            end
             
             % Update Widths
                 % Rb85
