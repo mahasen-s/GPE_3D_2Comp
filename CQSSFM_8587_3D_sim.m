@@ -367,9 +367,11 @@ end
 clear Kx Ky Kz
 
 %% SETUP MONITORED QUANTITIES
-main_fig = figure(1);
-clf
-set(main_fig,'renderer','opengl','color','w')
+if pars.figuresOn==true
+	main_fig = figure(1);
+	clf
+	set(main_fig,'renderer','opengl','color','w')
+end
 
 % Get data of unexpanded cloud
 ps2_85_data                 = ps2_85;
