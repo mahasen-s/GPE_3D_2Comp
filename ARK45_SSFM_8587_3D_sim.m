@@ -846,9 +846,17 @@ if strcmp(propMode,'prop') == true
             
             % Propagate state by 1dt
             propState_ARK45
-            fprintf('Time   = %4.3e\n',tNow*Time)
-            fprintf('T2Step = %4.3e\n',(tNext-tNow)*Time)
-            pause(0.01)
+            if pars.ark_debug == true 
+                fprintf('Time   = %4.3e\n',tNow*Time)
+                fprintf('T2Step = %4.3e\n',(tNext-tNow)*Time)
+                pause(0.01)
+            else
+                fprintf(repmat('\b',1,length(str1)+1));
+                str1 = sprintf('%2.2f',tNow/Tmax*100);
+                fprintf([str1,'%%']);
+                plotIter = plotIter+1;
+            end
+            
             % Update tNow
             tNow    = tNow + abs(dt);
             
@@ -1230,7 +1238,9 @@ fprintf('Done\n\n')
                 ps2_85  = ps2_85_old;
                 ps2_87  = ps2_87_old;
                 try_again_flag  = true;
-                fprintf('Reducing step \n')
+                if pars.ark_debug == true
+                    fprintf('Reducing step \n')
+                end
                 
                 % Reset counter
                 arkStepsWithoutChange   = 0;
@@ -1241,10 +1251,14 @@ fprintf('Done\n\n')
                 if tNext-tNow < 2*dt
                     dtNew           = (tNext-tNow);
                     getSampleFlag   = true;
-                    fprintf('Increasing step, but sampling \n')
+                    if pars.ark_debug == true
+                        fprintf('Increasing step, but sampling \n')
+                    end
                 else
                     dtNew           = 2*dt;
-                    fprintf('Increasing step \n')
+                    if pars.ark_debug == true
+                        fprintf('Increasing step \n')
+                    end
                 end
                 try_again_flag  = false;
                 
@@ -1259,9 +1273,13 @@ fprintf('Done\n\n')
                     dt_changed      = true;
                     dtNew           = (tNext-tNow);
                     getSampleFlag   = true;
-                    fprintf('Keeping step, but sampling \n')
+                    if pars.ark_debug == true
+                        fprintf('Keeping step, but sampling \n')
+                    end
                 else
-                    fprintf('Keeping step \n')
+                    if pars.ark_debug == true
+                        fprintf('Keeping step \n')
+                    end
                 end
                 try_again_flag  = false;
                 
@@ -1296,8 +1314,9 @@ fprintf('Done\n\n')
                 ps2_85     = disp_op85.*ps2_85;
                 ps2_87     = disp_op87.*ps2_87;
             end
-            
-            fprintf('dt     = %4.3e\n',dt)
+            if pars.ark_debug == true
+                fprintf('dt     = %4.3e\n',dt)
+            end
         end
         % Update dt
         if dt_changed == true

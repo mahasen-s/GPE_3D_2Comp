@@ -6,7 +6,7 @@ function sim_caller_230517
 
 
 % File names
-file_prefix     = '/short/iq20/ms2031/220517_CapillaryInstability_Full3D/220517_test';
+file_prefix     = 'pwd'%'/short/iq20/ms2031/220517_CapillaryInstability_Full3D/220517_test';
 groundstate     = [file_prefix,'_groundstate'];
 data_out        = [file_prefix,'_data'];
 pars_out        = [file_prefix,'_pars'];
