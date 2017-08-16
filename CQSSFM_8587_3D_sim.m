@@ -927,7 +927,7 @@ fprintf('Done\n\n')
          
         % Use unshifted potential for ansatz
         trap85  =          0.5*((omega_x(1)*Time*X).^2 + (omega_y(1)*Time*Y).^2 + zPart85);
-        trap87  = m87/m85*(0.5*((omega_x(1)*Time*X).^2 + (omega_y(1)*Time*Y).^2 + zPart87));
+        trap87  = m87/m85*(0.5*((omega_x(2)*Time*X).^2 + (omega_y(2)*Time*Y).^2 + zPart87));
     end
 
 

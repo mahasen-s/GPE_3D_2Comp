@@ -1,4 +1,4 @@
-function sim_caller
+function sim_caller_250517_fun%(N85,N87,aprop,initModeVars)
 % MI in 85/87 mixture
 % Start in miscible 85-87 regime. Switch to waveguide, jump scattering
 % length to negative value. Does MI still occur? Does the 85 form a 1D
@@ -136,10 +136,10 @@ a85_eqIntStr      = pars.m85/pars.m87*pars.scat_init_87;
 gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Sym',pars.scat_init_85)],'.','p');
 pars.fileIn         = gsFile;
 pars.initModeVars   = [0,0,1];
-%ARK45_SSFM_8587_3D_sim(pars)
-
-pars.propMode       = 'prop';
 ARK45_SSFM_8587_3D_sim(pars)
+
+% pars.propMode       = 'prop';
+% ARK45_SSFM_8587_3D_sim(pars)
 
 % gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Shift1',pars.scat_init_85)],'.','p');
 % pars.fileIn         = gsFile;

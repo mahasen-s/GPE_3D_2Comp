@@ -1,0 +1,29 @@
+function multi_run_220617
+
+otherpars  = struct(...
+            'N_85',5e4,...
+            'N_87',9.5e5,...
+            'freq_x',[582,89.4],...
+            'freq_y',[582,89.4],...
+            'freq_z',[18,7.2],...
+            'm85',6.80187059497e-26,...
+            'scat_init_85',200);
+        
+        % FIX SCATTERING LENGTHS!!!
+
+% Imaginary gain, a_s = 200
+sim_caller_220617(convert2cell(otherpars))
+
+% Real gain, a_s = 25
+
+% Miscible region, a_s = 500;
+
+
+end
+
+function y = convert2cell(x)
+y   = cellfun(@(x,y) {x,y},...
+    fieldnames(x),...
+    struct2cell(x),'uni',0);
+
+end
