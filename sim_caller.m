@@ -131,7 +131,7 @@ propFile                =  [file_prefix,sprintf('8587_waveguideProp_as=%4.1fa0',
 propFile                = strrep(propFile,'.','p');
 parsIn.propMode         = 'prop';
 parsIn.fileOut          = propFile;
-CQSSFM_8587_3D_sim(parsIn)
+ARK45_SSFM_8587_3D_sim(parsIn)
 
 
 
