@@ -120,45 +120,18 @@ a85_eqIntStr      = pars.m85/pars.m87*pars.scat_init_87;
 
 
 % Get groundstate
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0',a85_eqIntStr)]'.','p');
-% pars.fileIn         = gsFile;
-% CQSSFM_8587_3D_sim(pars)
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_85Low',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [1,-1]*10;
-% CQSSFM_8587_3D_sim(pars)
-% 
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_87Low',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [-1,1]*10;
-% CQSSFM_8587_3D_sim(pars)
-
 gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Sym',pars.scat_init_85)],'.','p');
 pars.fileIn         = gsFile;
 pars.initModeVars   = [0,0,1];
 ARK45_SSFM_8587_3D_sim(pars)
 
-% pars.propMode       = 'prop';
-% ARK45_SSFM_8587_3D_sim(pars)
-
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Shift1',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [-6,6,1];
-% CQSSFM_8587_3D_sim(pars)
-% 
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Shift2',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [5,-5,1];
-% CQSSFM_8587_3D_sim(pars)
-
 % Prop
-% parsIn                  =   pars;
-% propFile                =  [file_prefix,sprintf('8587_waveguideProp_as=%4.1fa0',parsIn.scat_prop_85)];
-% propFile                = strrep(propFile,'.','p');
-% fprintf('Processing file %s . . . \n',propFile)
-% parsIn.propMode         = 'prop';
-% parsIn.fileOut          = propFile;
-% CQSSFM_8587_3D_sim(parsIn)
+parsIn                  =   pars;
+propFile                =  [file_prefix,sprintf('8587_waveguideProp_as=%4.1fa0',parsIn.scat_prop_85)];
+propFile                = strrep(propFile,'.','p');
+parsIn.propMode         = 'prop';
+parsIn.fileOut          = propFile;
+CQSSFM_8587_3D_sim(parsIn)
 
 
 
