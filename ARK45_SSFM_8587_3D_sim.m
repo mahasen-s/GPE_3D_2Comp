@@ -28,13 +28,8 @@ function ARK45_SSFM_8587_3D_sim(pars)
 %% UNLOAD FROM PARAMETER STRUCTURE
 
 % Properties of trap, number, scattering length
-N_85            = pars.N_85;                          
-N_87            = pars.N_87;                         
-freq_x          = pars.freq_x;
-freq_y          = pars.freq_y;
-freq_z          = pars.freq_z;                     
-freq_z_prop     = pars.freq_z_prop;           
-trap_shift      = pars.trap_shift;
+N               = pars.N_85;
+trap_fun        = pars.trap_fun;
 size_x          = pars.size_x;
 size_y          = pars.size_y;
 size_z          = pars.size_z;                     
@@ -42,18 +37,12 @@ n_x             = pars.n_x;
 n_y             = pars.n_y;
 n_z             = pars.n_z; 
 
-RampTime        = pars.RampTime;                 
-scat_init_85    = pars.scat_init_85;         
-scat_init_87    = pars.scat_init_87;         
-scat_init_8587  = pars.scat_init_8587;     
-scat_prop_85    = pars.scat_prop_85;         
-scat_prop_87    = pars.scat_prop_87;         
-scat_prop_8587  = pars.scat_prop_8587;     
-scat_exp_85     = pars.scat_exp_85;           
-scat_exp_87     = pars.scat_exp_87;           
-scat_exp_8587   = pars.scat_exp_8587;  
+time_unit       = pars.time_unit;
+sampleTimes     = pars.sampleTimes;
 
-K3_re_init      = pars.K3_re_init;             
+scat_init       = pars.scat_init_85;         
+scat_prop       = pars.scat_prop_85;
+
 K3_re_prop      = pars.K3_re_prop;             
 K3_im_prop      = pars.K3_im_prop;    
 
@@ -62,16 +51,14 @@ dt_real_init    = pars.dt_real_init;
 Tmax_real_prop  = pars.Tmax_real_prop;     
 dt_real_prop    = pars.dt_real_prop;
 
-gravityOn       = pars.gravityOn;
-sampleTimes     = pars.sampleTimes;
 bdd_on          = pars.bdd_on;                     
 CUDA_flag       = pars.CUDA_flag;               
-useLogScale     = pars.useLogScale;           
+use_log_scale   = pars.useLogScale;           
 saveImages3D    = pars.saveImages3D;
 saveImages2D    = pars.saveImages2D;
 
 % ARK vars
-arkStepsWithoutChange = 0;
+ark_min_steps_before_change_dt = pars.ark_min_steps_before_change_dt;
 
 % Physical constants
 hbar            = pars.hbar;
@@ -80,25 +67,18 @@ m87             = pars.m87;
 gDQS            = pars.gDQS;
 bohr_radius     = pars.bohr_radius;    
 
-% Set noise properties
-noiseFrac       = pars.noiseFrac;       % Normalised size of added noise
-noiseStdDevs    = pars.noiseStdDevs;    % Std devs in r and z (respectively) for gaussian modulation of noise spatial frequencies
-
-% Waveguide tilt
-wgTilt          = pars.wgTilt;
-
 % Clean up sampleTimes (sort and remove zeros)
 sampleTimes(sampleTimes==0) = [];
 sampleTimes     = sort(sampleTimes);
 
 % Determine if we are finding groundstate or propagating
 propMode        = pars.propMode;
-fileIn          = pars.fileIn;
-fileOut         = pars.fileOut;
+init_file       = pars.init_file;
+prop_file       = pars.prop_file;
 overwriteFileIn = pars.overwriteFileIn;
 
 % Determine whether we are ramping to negative a or not
-if pars.RampTime<= 0 || scat_init_85==scat_prop_85 || strcmp(propMode,'init')==true
+if pars.RampTime<= 0 || scat_init==scat_prop || strcmp(propMode,'init')==true
     RampOn          = false;
 else
     RampOn          = true;
@@ -109,21 +89,21 @@ end
 switch propMode
     case 'init'
         data_step   = pars.data_step_init;
-        save_file   = fileIn;
+        save_file   = init_file;
         if exist([save_file,'.mat'],'file')~=0 && overwriteFileIn == false
             disp('Groundstate already exists')
             return
         end
     case 'prop'
         data_step   = pars.data_step_prop;
-        save_file   = fileOut;
+        save_file   = prop_file;
 end
 
 % Capture video
 if pars.writeVideo == true && strcmp(propMode,'prop')==1
-   writeVideo_flag   = true; 
+   write_video_flag   = true; 
 else
-   writeVideo_flag   = false;
+   write_video_flag   = false;
 end
         
 
@@ -136,16 +116,6 @@ font_LrgSize= 14;
 % Set up boundary, if required
 if bdd_on == true
     losses      = boundaries(n_x,n_y,n_z);
-end
-
-% Trap frequencies
-omega_x     = 2*pi*freq_x;
-omega_y     = 2*pi*freq_y;
-switch propMode
-    case 'init'
-        omega_z     = 2*pi*freq_z;
-    case 'prop'
-        omega_z     = 2*pi*freq_z_prop;
 end
 
 % Nondimensionalised units
@@ -171,7 +141,7 @@ size_y  = size_y/Length;
 size_z  = size_z/Length;
 
 % 85 self-interaction
-a85         = scat_init_85*bohr_radius; % Bohr radius * scattering length    
+a85         = scat_init*bohr_radius; % Bohr radius * scattering length    
 UaUnit85    = 4*pi*hbar^2*a85/m85;          % Units of interaction parameter
 
 % 87 self-interaction
@@ -187,10 +157,10 @@ Ua8587      = (4*pi*hbar^2*a8587/m_eff)/(Energy*Length^3); % Missing factor of 2
 switch propMode
     case 'init'
         G3_im       = 0;
-        Ua85        = UaUnit85/Length^3/Energy*(scat_init_85/scat_init_85);
+        Ua85        = UaUnit85/Length^3/Energy*(scat_init/scat_init);
     case 'prop'
         G3_im       = K3_im_prop*hbar/(Energy*Length^6);
-        Ua85        = UaUnit85/Length^3/Energy*(scat_prop_85/scat_init_85);
+        Ua85        = UaUnit85/Length^3/Energy*(scat_prop/scat_init);
 end
 G3_re       = K3_re_prop*hbar/(Energy*Length^6);
 G3          = G3_re + 1i*G3_im;
@@ -209,7 +179,13 @@ n_t     = numel(t);
 
 % Construct potential for propagation
 [X,Y,Z]                                         = meshgrid(x,y,z);
-[potential85,potential87,trap85,trap87]         = getPotential(omega_x,omega_y,omega_z);
+switch class(trap_fun)
+    case 'function_handle'
+        potential   = 
+end
+
+
+[potential,potential87,trap85,trap87]         = getPotential(omega_x,omega_y,omega_z);
 % figure(2)
 % maxis = [inf,-inf];
 % for i=1:3
@@ -245,7 +221,7 @@ switch propMode
         % Construct Thomas-Fermi approximate ground state
         UaUnitTF_85 = 4*pi*hbar^2*a85/m85;
         UaTF_85     = UaUnitTF_85/(Energy*Length^3);
-        mu          = (15*N_85*UaUnitTF_85*omega_x(1)*omega_y(1)*omega_z(1)/8/pi)^(2/5)*(m85/2)^(3/5)/Energy;
+        mu          = (15*N*UaUnitTF_85*omega_x(1)*omega_y(1)*omega_z(1)/8/pi)^(2/5)*(m85/2)^(3/5)/Energy;
         ps2_85      = real(sqrt((mu-trap85)/abs(UaTF_85)));
         
         UaUnitTF_87 = 4*pi*hbar^2*a87/m87;
@@ -289,7 +265,7 @@ switch propMode
         end
     case 'prop'
         % Load initial state
-        dataIn  = load(fileIn);
+        dataIn  = load(init_file);
         ps2_85  = dataIn.ps2_85;
         ps2_87  = dataIn.ps2_87;
         
@@ -336,14 +312,14 @@ if strcmp(propMode,'prop') == 1
 
     % Renormalise
     [n_85_temp,~]   = getN;
-    ps2_85          = ps2_85 * sqrt(N_85/n_85_temp); 
+    ps2_85          = ps2_85 * sqrt(N/n_85_temp); 
 end
 
 %% SETUP EXPANSION STUFF
 if pars.ExpandOn == true
     
     % Expansion Ua unit
-    Ua_exp_85  = UaUnit85/Length^3/Energy*(scat_exp_85/scat_init_85);
+    Ua_exp_85  = UaUnit85/Length^3/Energy*(scat_exp_85/scat_init);
     
     % Get expansion time
     dt_PostExp  = dt_PostExp_real/Time;
@@ -360,7 +336,7 @@ end
 %% SETUP RAMP STUFF
 if RampOn == true
     rampTime    = rampTime_real/Time;
-    rampUa_fun  = @(x) UaUnit85/Length^3/Energy*((scat_init_85 + x*(scat_prop_85-scat_init_85)/rampTime)/scat_init_85);
+    rampUa_fun  = @(x) UaUnit85/Length^3/Energy*((scat_init + x*(scat_prop-scat_init)/rampTime)/scat_init);
 end
 
 %% PREPARE FOR PROPAGATION
@@ -506,7 +482,7 @@ marg_w      = [0.14,0.0];
     else
         legend([plot_Nlist_85,plot_Nlist_87],{'Rb85','Rb87'})
     end
-    ylim(1.2*[0,max([N_85,N_87])])
+    ylim(1.2*[0,max([N,N_87])])
 
     %% Energy
     subtightplot(4,4,4,stp);
@@ -586,7 +562,7 @@ marg_w      = [0.14,0.0];
     
     % 85
     subtightplot(4,4,[1,2],stp);
-    if useLogScale == true
+    if use_log_scale == true
         plot_density_85_zx = imagesc(x*Length*10^6,z*Length*10^6, log(1+ps2_85_proj_zx));
     else
         plot_density_85_zx = imagesc(x*Length*10^6,z*Length*10^6, ps2_85_proj_zx);
@@ -600,7 +576,7 @@ marg_w      = [0.14,0.0];
     
     % 87
     subtightplot(4,4,[5,6],stp);
-    if useLogScale == true
+    if use_log_scale == true
         plot_density_87_zx = imagesc(x*Length*10^6,z*Length*10^6, log(1+ps2_87_proj_zx));
     else
         plot_density_87_zx = imagesc(x*Length*10^6,z*Length*10^6, ps2_87_proj_zx);
@@ -643,7 +619,7 @@ marg_w      = [0.14,0.0];
     
     % 85
     subtightplot(4,4,3,stp);
-    if useLogScale == true
+    if use_log_scale == true
         plot_density_85_xy = imagesc(x*Length*10^6,y*Length*10^6, log(1+ps2_85_proj_xy));
     else
         plot_density_85_xy = imagesc(x*Length*10^6,y*Length*10^6, ps2_85_proj_xy);
@@ -657,7 +633,7 @@ marg_w      = [0.14,0.0];
     
     % 87
     subtightplot(4,4,7,stp);
-    if useLogScale == true
+    if use_log_scale == true
         plot_density_87_xy = imagesc(x*Length*10^6,y*Length*10^6, log(1+ps2_87_proj_xy));
     else
         plot_density_87_xy = imagesc(x*Length*10^6,y*Length*10^6, ps2_87_proj_xy);
@@ -698,7 +674,7 @@ marg_w      = [0.14,0.0];
     %% Create expanded z-r projection
     if pars.ExpandOn == true
         subplot(2,4,5)
-        if useLogScale == true
+        if use_log_scale == true
             plot_density_exp_85 = imagesc([z,z]*Length*10^6,[-fliplr(r), r]*Length*10^6, log(1+[fliplr(abs(ps2_85_exp).^2), abs(ps2_85_exp).^2]'));
         else
             plot_density_exp_85 = imagesc([z,z]*Length*10^6,[-fliplr(r), r]*Length*10^6, [fliplr(abs(ps2_85_exp).^2), abs(ps2_85_exp).^2]');
@@ -711,7 +687,7 @@ marg_w      = [0.14,0.0];
         plot_density_exp_title_85 = title('Expanded Rb85 density @ t = 0','FontWeight','Bold','FontSize',font_LrgSize);
 
         subplot(2,4,6)
-        if useLogScale == true
+        if use_log_scale == true
             plot_density_exp_87 = imagesc([z,z]*Length*10^6,[-fliplr(r), r]*Length*10^6, log(1+[fliplr(abs(ps2_87_exp).^2), abs(ps2_87_exp).^2]'));
         else
             plot_density_exp_87 = imagesc([z,z]*Length*10^6,[-fliplr(r), r]*Length*10^6, [fliplr(abs(ps2_87_exp).^2), abs(ps2_87_exp).^2]');
@@ -765,7 +741,7 @@ if CUDA_flag == true
     ps2_87      = gpuArray(ps2_87);
     disp_op85   = gpuArray(disp_op85);
     disp_op87   = gpuArray(disp_op87);
-    potential85 = gpuArray(potential85);
+    potential = gpuArray(potential);
     potential87 = gpuArray(potential87);
     if bdd_on == true
         losses      = gpuArray(losses);    
@@ -790,7 +766,7 @@ fprintf([str1,'%%']);
 plotIter = 1;
 
 % Create video
-if writeVideo_flag == true && pars.figuresOn == true
+if write_video_flag == true && pars.figuresOn == true
     set(gcf,'color','w')
     vidObj  = VideoWriter([save_file,'_video.mj2'],'Archival');
     open(vidObj)
@@ -812,7 +788,7 @@ if strcmp(propMode,'init') == true
             updatePlots
             
             % Write to video
-            if writeVideo_flag == true && pars.figuresOn == true
+            if write_video_flag == true && pars.figuresOn == true
                 frame = getframe(main_fig);
                 writeVideo(vidObj,frame);
             end
@@ -871,7 +847,7 @@ if strcmp(propMode,'prop') == true
         updatePlots
         
         % Write to video
-        if writeVideo_flag == true && pars.figuresOn == true
+        if write_video_flag == true && pars.figuresOn == true
             frame = getframe(main_fig);
             writeVideo(vidObj,frame);
         end
@@ -879,7 +855,7 @@ if strcmp(propMode,'prop') == true
 end
 
 % Close Video
-if writeVideo_flag == true
+if write_video_flag == true
     close(vidObj);
 end
 
@@ -890,7 +866,7 @@ ps2_87     = ifftn(ps2_87);
 % Renormalise
 if strcmp(propMode,'init') == true
     [n_85,n_87]  = getN;
-    ps2_85     = ps2_85 * sqrt(N_85/n_85);
+    ps2_85     = ps2_85 * sqrt(N/n_85);
     ps2_87     = ps2_87 * sqrt(N_87/n_87);
 end
 
@@ -975,43 +951,6 @@ fprintf('Saving . . . ')
 fprintf('Done\n\n')
 
 %% AUXILIARY FUNCTIONS
-    % Get potentials
-    function  [p85,p87,trap85,trap87] =  getPotential(omega_x,omega_y,omega_z)
-        if wgTilt==0
-            zPart85     = (omega_z(1)*Time*Z).^2;
-            zPart87     = (omega_z(2)*Time*Z).^2;
-        else
-            z_pot85     = (omega_z(1)*Time*z).^2;
-            z_rot       = z*cos(wgTilt) - z_pot85*sin(wgTilt);
-            z_pot_rot   = z*sin(wgTilt) + z_pot85*cos(wgTilt);
-            zPart85     = interp1(z_rot,z_pot_rot,z,'spline');
-            [~,~,zPart85] = meshgrid(x,y,zPart85);
-            
-            z_pot87     = (omega_z(2)*Time*z).^2;
-            z_rot       = z*cos(wgTilt) - z_pot87*sin(wgTilt);
-            z_pot_rot   = z*sin(wgTilt) + z_pot87*cos(wgTilt);
-            zPart87       = interp1(z_rot,z_pot_rot,z,'spline');
-            [~,~,zPart87] = meshgrid(x,y,zPart87);
-            
-        end
-        if gravityOn == true
-            yShift85        = gDQS/(omega_y(1)^2*Length);
-            yShift87        = gDQS/(omega_y(2)^2*Length);
-            trapCorrection  = m85*gDQS*Y*Length/Energy;
-        else
-            yShift85        = 0;
-            yShift87        = 0;
-            trapCorrection  = 0;
-        end
-        p85     =           0.5*((omega_x(1)*Time*X).^2 + (omega_y(1)*Time*(Y-yShift85)).^2 + zPart85)+ trapCorrection;
-        p87     = m87/m85*( 0.5*((omega_x(2)*Time*X).^2 + (omega_y(2)*Time*(Y-yShift87)).^2 + zPart87)+ trapCorrection);
-         
-        % Use unshifted potential for ansatz
-        trap85  =          0.5*((omega_x(1)*Time*X).^2 + (omega_y(1)*Time*Y).^2 + zPart85);
-        trap87  = m87/m85*(0.5*((omega_x(1)*Time*X).^2 + (omega_y(1)*Time*Y).^2 + zPart87));
-    end
-
-
     % get number of particles by integrating intensity
     function [n_85,n_87] = getN
         n_85 = trapz(x,trapz(y,trapz(z,abs(ps2_85).^2,3),1),2);
@@ -1046,7 +985,7 @@ fprintf('Done\n\n')
         warning('off','all')
         [fx,fy,fz] = gradient(ps2_85_data,x,y,z);
         KE         = 1/2*(abs(fx).^2 + abs(fy).^2 + abs(fz).^2);
-        eDens_85=   real(potential85).*abs(ps2_85_data).^2 + ...
+        eDens_85=   real(potential).*abs(ps2_85_data).^2 + ...
                     Ua85/2*abs(ps2_85_data).^4 + ...
                     Ua8587/2*abs(ps2_85_data).^2.*abs(ps2_87_data).^2 + ...
                     KE;
@@ -1119,7 +1058,7 @@ fprintf('Done\n\n')
     function [g85,g87] = gpeFun(p85,p87)
         d85     = abs(p85).^2;
         d87     = abs(p87).^2;
-        g85     = (1i*((-Ua85*d85-Ua8587*d87-G3*d85.^2-potential85).*p85))*dt;
+        g85     = (1i*((-Ua85*d85-Ua8587*d87-G3*d85.^2-potential).*p85))*dt;
         g87     = (1i*((-Ua87*d87-Ua8587*d85-G3*d87.^2-potential87).*p87))*dt;
     end
 
@@ -1149,28 +1088,28 @@ fprintf('Done\n\n')
         % Interaction (RK4)
         dens85    = abs(ps2_85).^2;
         dens87    = abs(ps2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*ps2_85))*dt;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential).*ps2_85))*dt;
         A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*ps2_87))*dt;
         ps2_85_out= A2_85;
         ps2_87_out= A2_87;
 
         dens85    = abs(ps2_85+1/2*A2_85).^2;
         dens87    = abs(ps2_87+1/2*A2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*A2_85)))*dt;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential).*(ps2_85+1/2*A2_85)))*dt;
         A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*A2_87)))*dt;
         ps2_85_out= ps2_85_out + 2*A2_85;
         ps2_87_out= ps2_87_out + 2*A2_87;
 
         dens85    = abs(ps2_85+1/2*A2_85).^2;
         dens87    = abs(ps2_87+1/2*A2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+1/2*A2_85)))*dt;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential).*(ps2_85+1/2*A2_85)))*dt;
         A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+1/2*A2_87)))*dt;
         ps2_85_out= ps2_85_out + 2*A2_85;
         ps2_87_out= ps2_87_out + 2*A2_87;
 
         dens85    = abs(ps2_85+A2_85).^2;
         dens87    = abs(ps2_87+A2_87).^2;
-        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential85).*(ps2_85+A2_85)))*dt;
+        A2_85     = (1i*((-Ua85*dens85-Ua8587*dens87-G3*dens85.^2-potential).*(ps2_85+A2_85)))*dt;
         A2_87     = (1i*((-Ua87*dens87-Ua8587*dens85-G3*dens87.^2-potential87).*(ps2_87+A2_87)))*dt;
 
         ps2_85    = ps2_85+1/6*(ps2_85_out + A2_85);
@@ -1179,7 +1118,7 @@ fprintf('Done\n\n')
         % Renormalise
         if strcmp(propMode,'init') == true
             [n_85,n_87]  = getN;
-            ps2_85     = ps2_85 * sqrt(N_85/n_85);
+            ps2_85     = ps2_85 * sqrt(N/n_85);
             ps2_87     = ps2_87 * sqrt(N_87/n_87);
         end
         
@@ -1243,9 +1182,9 @@ fprintf('Done\n\n')
                 end
                 
                 % Reset counter
-                arkStepsWithoutChange   = 0;
+                ark_min_steps_before_change_dt   = 0;
                 
-            elseif s>2 && arkStepsWithoutChange >= pars.ark_minStepsBeforeChangeDt
+            elseif s>2 && ark_min_steps_before_change_dt >= pars.ark_minStepsBeforeChangeDt
                 % Previous step was too small. Update ps2 and double step-size for next step
                 dt_changed      = true;
                 if tNext-tNow < 2*dt
@@ -1264,7 +1203,7 @@ fprintf('Done\n\n')
                 
                 
                 % Reset counter
-                arkStepsWithoutChange   = 0;
+                ark_min_steps_before_change_dt   = 0;
             else
                 % Step-size was about right OR dt has been changed
                 % recently
@@ -1284,7 +1223,7 @@ fprintf('Done\n\n')
                 try_again_flag  = false;
                 
                 % Increment unchanged counter
-                arkStepsWithoutChange   = arkStepsWithoutChange + 1;
+                ark_min_steps_before_change_dt   = ark_min_steps_before_change_dt + 1;
             end
             
             if try_again_flag == false
@@ -1295,7 +1234,7 @@ fprintf('Done\n\n')
                 % Renormalise
                 if strcmp(propMode,'init') == true
                     [n_85,n_87]  = getN;
-                    ps2_85     = ps2_85 * sqrt(N_85/n_85);
+                    ps2_85     = ps2_85 * sqrt(N/n_85);
                     ps2_87     = ps2_87 * sqrt(N_87/n_87);
                 end
 
@@ -1442,7 +1381,7 @@ fprintf('Done\n\n')
                 end
             
             if  pars.figuresOn == true
-                if useLogScale == true
+                if use_log_scale == true
                     set(plot_density_85_zx,'CData',log(1+ps2_85_proj_zx));
                     set(plot_density_87_zx,'CData',log(1+ps2_87_proj_zx));
                     set(plot_density_85_xy,'CData',log(1+ps2_85_proj_xy));
@@ -1517,7 +1456,7 @@ fprintf('Done\n\n')
                     set(plot_com_z_exp_87,'XData',time_vec,'YData',com_z_exp_list_87);
                 
                 % Update projections
-                if useLogScale == true
+                if use_log_scale == true
                     set(plot_density_exp_85,'CData',log(1+[fliplr(abs(ps2_85_exp).^2), abs(ps2_85_exp).^2]'));
                     set(plot_density_exp_87,'CData',log(1+[fliplr(abs(ps2_87_exp).^2), abs(ps2_87_exp).^2]'));
                 else
