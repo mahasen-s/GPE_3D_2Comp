@@ -1,9 +1,9 @@
-function ARK45_SSFM_8587_3D_sim(pars)
+function ARK45_GPE_3D_sim(pars)
 % Explicit visualisation controls
-% Checks for whether figure was initialised
-% Video writing contingent on this check
+% Checks for whether figure was initialised done
+% Video writing contingent on this check done
 
-% Nondimensionalised interface
+% Nondimensionalised interface done
 
 % Switch for Cubic-Quintic GPE
 
@@ -14,6 +14,86 @@ function ARK45_SSFM_8587_3D_sim(pars)
 % trap can be provided either as a function or as an array
 
 % Include checks for Levy-Friedrichs-Courant condition? ~dt/dx^2?
+
+%% UNLOAD FROM PARAMETER STRUCTURE
+
+% System parameters
+N               = pars.N_85;
+trap_fun        = pars.trap_fun;
+
+% Interaction parameters
+U               = pars.U;
+K3_im           = pars.K3_im;
+
+% Time
+t_max           = pars.t_max;
+dt              = pars.dt;
+sample_times    = pars.sample_times;
+data_step_init  = pars.data_step_init;
+
+% Spatial size and discretisation
+size_x          = pars.size_x;
+size_y          = pars.size_y;
+size_z          = pars.size_z;                     
+n_x             = pars.n_x;
+n_y             = pars.n_y;
+n_z             = pars.n_z;
+
+% ARK45 options
+ark_tol                         = pars.ark_tol;
+ark_min_steps_before_change_dt  = pars.ark_tol;
+ark_min_step_size               = pars.ark_tol;
+ark_method                      = pars.ark_tol;
+
+% Misc
+figures_on      = pars.figures_on;
+boundary_on     = pars.boundary_on;
+CUDA_on         = pars.CUDA_on;
+use_log_scale   = pars.use_log_scale;
+save_images_3D  = pars.save_images_3D;
+save_images_2D  = pars.save_images_2D;
+write_video     = pars.write_video;
+
+%% Process inputs
+% Check if plotting envrionment is available
+if figures_on == true
+    try
+        h_fig = figure(1);
+    catch me
+        fprintf('Failed to create figures. Disabling visualisations . . .\n')
+        figures_on = false;
+    end
+end
+
+% If figures_on==false, disable all visualisation flags
+if figures_on==false
+    if save_images_2D==true || save_images_3D==true
+        fprintf('Cannot save images since figures_on=false\n')
+    end
+    if write_video==true
+        fprintf('Cannot write video since figures_on=false\n')
+    end
+end
+
+% If a_s is a numeric scalar, convert it to a function
+switch isnumeric(U)
+    case true
+        if numel(U) == 1
+            U = @(t) U;
+        else
+            error('a_s must be a numeric scalar or a function a_s = f(t)')
+        end
+    otherwise
+        if isa(U,'function_handle')==false
+            error('a_s must be a numeric scalar or a function a_s = f(t)')
+        end
+end
+
+%% Define gpeFun
+    function out = gpeFun(psi_fun)
+        dens    = abs(psi_fun).^2;
+        out     = 1i*((-U_now*dens-K3_im*dens.^2-potential).*psi_fun);
+    end
 
 
 %% Subfunctions
