@@ -61,8 +61,11 @@ wx              = wx_exp*Time;
 wy              = wy_exp*Time;
 wz              = wz_exp*Time;
 
+% Set chemical potential
+mu              = (15*N*U_exp*wx*wy*wz/8/pi)^(2/5)*(mass/2)^(3/5)/Energy;
+
 % Space stuff
-size_x_         = size_x_exp/Length;
+size_x          = size_x_exp/Length;
 size_y          = size_y_exp/Length;
 size_z          = size_z_exp/Length;
 

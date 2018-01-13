@@ -179,10 +179,6 @@ n_t     = numel(t);
 
 % Construct potential for propagation
 [X,Y,Z]                                         = meshgrid(x,y,z);
-switch class(trap_fun)
-    case 'function_handle'
-        potential   = 
-end
 
 
 [potential,potential87,trap85,trap87]         = getPotential(omega_x,omega_y,omega_z);
