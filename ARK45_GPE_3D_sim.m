@@ -80,7 +80,7 @@ end
 switch prop_mode
     case 'init'
         % U must be a numeric scalar
-        if isnumeric(U)~=true || numel(U)~=true
+        if isnumeric(U)~=true || numel(U)~=1
             error('U must be a numeric scalar for prop_mode==init')
         end
     case 'prop'
