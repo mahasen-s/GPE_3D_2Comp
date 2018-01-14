@@ -76,10 +76,14 @@ sample_times    = sample_times_exp/Time;
 
 %% Define functions
 % Trap
-trap_fun    = @(x,y,z) 0.5*((wx*x).^2 + (wy*y).^2 + (wz*z).^2);
+trap_fun    = @(x,y,z) 0.5*((wx*x).^2 + (wy*y).^2 + (wz*z).^2); % can also just supply array
 
 % Scattering length (e.g. if it is changing over time)
 f           = @(x) max(15*cos(1/(5e-3)/pi*x),10)*U*a0/a_s;
+
+% Model function
+model_fun   = @gpe_cq_3body_losses;
+model_pars  = struct('K3_im',K3_im);
 
 %% SET PARAMETERS
 % Set trap geoemtry, number, and grid discretisation. trap_shift is shift
@@ -93,6 +97,11 @@ pars    = struct(...
             'n_x',n_x ,...
             'n_y',n_y ,...
             'n_z',n_z);
+        
+% Set model parameters
+pars    = struct(...,
+            'model_fun',model_fun,...
+            'model_pars',model_pars);
             
 % Set ARK45 options
 pars    = appendfields(pars,...

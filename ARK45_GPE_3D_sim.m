@@ -3,6 +3,8 @@ function ARK45_GPE_3D_sim(pars)
 % Checks for whether figure was initialised done
 % Video writing contingent on this check done
 
+% Should change the way arrays are written; should store piece wise on disk
+
 % Nondimensionalised interface done
 
 % Switch for Cubic-Quintic GPE
@@ -15,11 +17,18 @@ function ARK45_GPE_3D_sim(pars)
 
 % Include checks for Levy-Friedrichs-Courant condition? ~dt/dx^2?
 
+% Pass model as a reference
+% Pass additional parameters as a struct
+
 %% UNLOAD FROM PARAMETER STRUCTURE
 
 % System parameters
 N               = pars.N_85;
 trap_fun        = pars.trap_fun;
+
+% Model parameters
+model_fun       = pars.model_fun;
+model_pars      = pars.model_pars;
 
 % Interaction parameters
 U               = pars.U;
@@ -105,13 +114,6 @@ switch prop_mode
         dt      = -1i*dt;
         K3_im   = 0;
 end
-
-%% Define gpeFun
-    function out = gpeFun(psi_fun)
-        dens    = abs(psi_fun).^2;
-        out     = 1i*((-U_now*dens-K3_im*dens.^2-potential).*psi_fun);
-    end
-
 
 %% Construct meshes
 % Construct spatial vectors
@@ -249,7 +251,140 @@ psi_fun         = fftn(psi_fun);
         % Recompute dispersion operator
         disp_op         = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
     end
+
+    function [widths,coms] = getMoments
+        % Get com
+        com_x    = trapz(x,(x).*trapz(z,trapz(y,abs(ps2_85_data).^2,1),3),2)/N_now;
+        com_y    = trapz(y,(y)'.*trapz(x,trapz(z,abs(ps2_85_data).^2,3),2),1)/N_now;
+        z_temp      = reshape(z,[1,1,numel(z)]);
+        com_z    = trapz(z,z_temp.*trapz(y,trapz(x,abs(ps2_85_data).^2,2),1),3)/N_now;
+        
+        % Get widths
+        width_x  = (1/N_now)*trapz(x,(x.^2).*trapz(y,trapz(z,abs(ps2_85_data).^2,3),2),1);
+        width_y  = (1/N_now)*trapz(y,(y.^2)'.*trapz(z,trapz(x,abs(ps2_85_data).^2,1),3),2);
+        z_temp      = reshape(z,[1,1,numel(z)]);
+        width_z  = (1/N_now)*trapz(z,(z_temp.^2).*trapz(x,trapz(y,abs(ps2_85_data).^2,2),1),3);
+        
+        % Store
+        widths      = [ width_x;
+            width_y;
+            width_z];
+        coms        = [ com_x;
+            com_y;
+            com_z];
+    end
+
+    function [N_now] = getN
+        N_now = trapz(x,trapz(y,trapz(z,abs(psi_fun).^2,3),2),1);
+    end
     
+    function [N_now] = getN_data
+        N_now = trapz(x,trapz(y,trapz(z,abs(psi_fun_data).^2,3),1),2);
+    end
+
+%% UPDATE PLOTS
+    function updatePlots
+            
+            % UnHankel and UnFFT Unexpanded cloud
+            psi_fun = ifftn(psi_fun);
+            
+            % Update projections
+            [p_xy,p_yz,p_zx]   = get_proj(psi_fun);
+            
+            if saveImages3D == true || saveImages2D==true
+                sliceCounter     = sliceCounter+1;
+            end
+            
+            if saveImages3D == true
+                imageArray(:,:,:,sliceCounter)  = psi_fun;
+            end
+            
+            if saveImages2D == true
+                nImages                 = numel(sampleTimes) + 1;
+                
+                imageArray_xy(:,:,sliceCounter)    = p_xy;
+                imageArray_yz(:,:,sliceCounter)    = p_yz;
+                imageArray_zx(:,:,sliceCounter)    = p_zx;
+            end
+            
+            % Update time
+            time_vec(end+1) = tNow;
+            
+            % Update dt
+            if isequal(propMode,'prop') == true
+                set(plot_dtList,'XData',dtTimeList,'YData',dtList);
+            end
+            
+            % Update particle counts
+            [n85,n87]          = getN_data;
+            Nlist_85(end+1)    = gather(n85);
+            Nlist_87(end+1)    = gather(n87);
+            if pars.figuresOn == true
+                set(plot_Nlist_85,'XData',time_vec,'YData',Nlist_85);
+                set(plot_Nlist_87,'XData',time_vec,'YData',Nlist_87);
+            end
+            
+            % Update Widths
+                % Rb85
+                [widths,coms]          = getMoments;
+                width_x_list_85(end+1) = gather(widths(1,1));
+                width_y_list_85(end+1) = gather(widths(2,1));
+                width_z_list_85(end+1) = gather(widths(3,1));
+                com_x_list_85(end+1)   = gather(coms(1,1));
+                com_y_list_85(end+1)   = gather(coms(2,1));
+                com_z_list_85(end+1)   = gather(coms(3,1));
+                if pars.figuresOn == true
+                    set(plot_width_x_85,'XData',time_vec,'YData',width_x_list_85);
+                    set(plot_width_z_85,'XData',time_vec,'YData',width_z_list_85);
+                    set(plot_com_z_85,'XData',time_vec,'YData',com_z_list_85);
+                end
+
+                % Rb87
+                width_x_list_87(end+1) = gather(widths(1,2));
+                width_y_list_87(end+1) = gather(widths(2,2));
+                width_z_list_87(end+1) = gather(widths(3,2));
+                com_x_list_87(end+1)   = gather(coms(1,2));
+                com_y_list_87(end+1)   = gather(coms(2,2));
+                com_z_list_87(end+1)   = gather(coms(3,2));
+                if pars.figuresOn == true
+                    set(plot_width_x_87,'XData',time_vec,'YData',width_x_list_87);
+                    set(plot_width_z_87,'XData',time_vec,'YData',width_z_list_87);
+                    set(plot_com_z_87,'XData',time_vec,'YData',com_z_list_87);
+                end
+            
+            if  pars.figuresOn == true
+                if use_log_scale == true
+                    set(plot_density_85_zx,'CData',log(1+ps2_85_proj_zx));
+                    set(plot_density_87_zx,'CData',log(1+ps2_87_proj_zx));
+                    set(plot_density_85_xy,'CData',log(1+ps2_85_proj_xy));
+                    set(plot_density_87_xy,'CData',log(1+ps2_87_proj_xy));
+                else
+                    set(plot_density_85_zx,'CData',ps2_85_proj_zx);
+                    set(plot_density_87_zx,'CData',ps2_87_proj_zx);
+                    set(plot_density_85_xy,'CData',ps2_85_proj_xy);
+                    set(plot_density_87_xy,'CData',ps2_87_proj_xy);
+                end
+                set(plot_density_title_85_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{85}$ Density, \\boldmath$t = %4.1f$ ms}',1000*tNow*Time));
+                set(plot_density_title_87_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{87}$ Density, \\boldmath$t = %4.1f$ ms}',1000*tNow*Time));
+                
+                
+            end
+            
+            
+            % Update Ua plot
+            if RampOn == true
+                Ua_list(end+1)  = Ua85;
+                if pars.figuresOn == true
+                    set(h_ua,'XData',time_vec,'YData',Ua_list);
+                end
+            end
+            
+            if pars.figuresOn == true
+                drawnow
+            end
+    end
+
+%% PROP FUN
     function propState
         % Loop while step is not successful
         try_again   = true;     % try_again=false when step is successful
@@ -267,16 +402,16 @@ psi_fun         = fftn(psi_fun);
             dt_changed  = false;    % step successful, but dt needs to be increased for efficiency, or reduced for sampling
             
             % ARK45(DP)
-            P_A   = dt*gpeFun(psi_fun);
-            P_B   = dt*gpeFun(psi_fun +          1/5*P_A);
-            P_C   = dt*gpeFun(psi_fun +         3/40*P_A +       9/40*P_B);
-            P_D   = dt*gpeFun(psi_fun +        44/45*P_A -      56/15*P_B +       32/9*P_C);
-            P_E   = dt*gpeFun(psi_fun +   19372/6561*P_A - 25360/2187*P_B + 64448/6561*P_C - 212/729*P_D);
-            P_F   = dt*gpeFun(psi_fun +    9017/3168*P_A -     355/33*P_B + 46732/5247*P_C +	49/176*P_D -    5103/18656*P_E);
+            P_A   = dt*model_fun(psi_fun,potential,model_pars);
+            P_B   = dt*model_fun(psi_fun +          1/5*P_A,potential,model_pars);
+            P_C   = dt*model_fun(psi_fun +         3/40*P_A +       9/40*P_B,potential,model_pars);
+            P_D   = dt*model_fun(psi_fun +        44/45*P_A -      56/15*P_B +       32/9*P_C,potential,model_pars);
+            P_E   = dt*model_fun(psi_fun +   19372/6561*P_A - 25360/2187*P_B + 64448/6561*P_C - 212/729*P_D,potential,model_pars);
+            P_F   = dt*model_fun(psi_fun +    9017/3168*P_A -     355/33*P_B + 46732/5247*P_C +	49/176*P_D -    5103/18656*P_E,potential,model_pars);
             
             % 5th, 4th order estimates
-            P_G   = dt*gpeFun(psi_fun +       35/384*P_A +          0*P_B +   500/1113*P_C + 125/192*P_D -     2187/6784*P_E +    11/84*P_F           );
-            P_H   = dt*gpeFun(psi_fun +   5179/57600*P_A +          0*P_B + 7571/16695*P_C + 393/640*P_D -  92097/339200*P_E + 187/2100*P_F + 1/40*P_G);
+            P_G   = dt*model_fun(psi_fun +       35/384*P_A +          0*P_B +   500/1113*P_C + 125/192*P_D -     2187/6784*P_E +    11/84*P_F           ,potential,model_pars);
+            P_H   = dt*model_fun(psi_fun +   5179/57600*P_A +          0*P_B + 7571/16695*P_C + 393/640*P_D -  92097/339200*P_E + 187/2100*P_F + 1/40*P_G,potential,model_pars);
             
             % Calculate error
             P_err = sum(abs(P_G(:)-P_H(:)));%/numel(P_G);
@@ -390,4 +525,14 @@ psi_fun         = fftn(psi_fun);
     end
 
 
+end
+
+%% EXTERNAL FUNCTIONS
+function mask = boundaries(n_i,n_j,n_k)
+    % probably should use something less bad
+    x = linspace(-1.1,1.1,n_i);
+    y = linspace(-1.1,1.1,n_j);
+    z = linspace(-1.1,1.1,n_k);
+    [X,Y,Z] = meshgrid(x,y,z);
+    mask = exp(-(X.^40+Y.^40+Z.^40));
 end
