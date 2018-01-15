@@ -41,9 +41,11 @@ n_z             = pars.n_z;
 
 % ARK45 options
 ark_tol                         = pars.ark_tol;
-ark_min_steps_before_change_dt  = pars.ark_tol;
-ark_min_step_size               = pars.ark_tol;
-ark_method                      = pars.ark_tol;
+ark_min_steps_before_change_dt  = pars.ark_ark_min_steps_before_change_dt;
+ark_min_step_size               = pars.ark_ark_min_step_size;
+ark_lo_ratio                    = 0.5;  % factor to reduce dt if step size too large
+ark_hi_ratio                    = 1.9;  % factor to increase dt by if step too small, it's better if ark_lo_ratio*ark_hi_ratio != 1
+ark_method                      = pars.ark_method;
 
 % Misc
 prop_mode       = pars.prop_mode;
@@ -61,7 +63,7 @@ if figures_on == true
     try
         h_fig = figure(1);
     catch me
-        fprintf('Failed to create figures. Disabling visualisations . . .\n')
+        fprintf('Failed to create figures. Setting figures_on = false . . .\n')
         figures_on = false;
     end
 end
@@ -184,7 +186,6 @@ if saveImages3D == true
    nImages              = numel(sampleTimes) + 1;
    imageArray           = zeros(n_x,n_y,n_z,nImages) ;
    imageArray(:,:,:,1)  = psi_fun;
-   sliceCounter     = 1;
 end
 
 if saveImages2D == true
@@ -198,11 +199,53 @@ if saveImages2D == true
     imageArray_xy(:,:,1)    = p_xy;
     imageArray_yz(:,:,1)    = p_yz;
     imageArray_zx(:,:,1)    = p_zx;
-    
-    sliceCounter     = 1;
-end   
-%% SETUP FIGURES
+end
 
+% Atom number
+N_now                   = 0;
+N_list                  = getN;
+
+% Time
+time_vec                = 0;
+dt_list                 = dt;
+dt_time_list            = 0;
+
+%% SETUP FIGURES
+% subtightplot options
+stp         = [0.07,0.08];
+marg_h      = 1*[0.05,0.05];
+marg_w      = [0.14,0.0];
+
+% Plot projections
+[p_xy,p_yz,p_zx]        = get_proj(psi_fun);
+
+subtightplot(2,3,1);
+plot_proj_xy            = imagesc(abs(p_xy));
+
+subtightplot(2,3,2);
+plot_proj_yz            = imagesc(abs(p_yz));
+
+subtightplot(2,3,3);
+plot_proj_zx            = imagesc(abs(p_zx));
+
+% Plot atom number
+subtightplot(2,3,4)
+plot_N     = plot(time_vec,N_list,'linewidth',1);%,'marker','o');
+box on 
+grid on
+title('\boldmath$dt(t)$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+xlabel('\boldmath$t$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+ylabel('\boldmath$dt$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+xlim([0,t_max])
+
+% Plot dt
+plot_dt    = plot(dt_time_list,dt_list,'linewidth',1);%,'marker','o');
+box on 
+grid on
+title('\boldmath$dt(t)$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+xlabel('\boldmath$t$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+ylabel('\boldmath$dt$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+xlim([0,t_max])
 
 %% PUSH ARRAYS TO GPU
 if CUDA_flag == true
@@ -218,15 +261,122 @@ if CUDA_flag == true
 end
 
 %% MAIN LOOP
+fprintf('Progress: ');
+prog_str = sprintf('00.00');
+fprintf([prog_str,'%%']);
+
 % Pre-propagation
 psi_fun         = fftn(psi_fun);
+
+% Propagtion loop
+switch prop_mode
+    case 'prop'
+        t_next_samp_ind   = 0;    % index for next time to sample
+        t_now    = 0;
+        while t_now < t_max
+            while t_next_samp_ind<numel(sample_times)
+                % Get next sample time, tNext
+                t_next_samp_ind = t_next_samp_ind + 1;
+                t_next_samp     = sample_times(t_next_samp_ind);
+                get_sample_flag = false; % flag to tell prop_state to sample on current step
+                dt_is_shrunk_flag  = false; % flag to tell prop_state that dt was shrunk recently for sampling and that it should set dt = dt_pre_sample
+                dt_pre_sample   = dt;
+                
+                % Propagate until sample time. At the end of this while loop,
+                % tNow + dt = tNext
+                while get_sample_flag == false
+                    % Propagate until next step will put t_now at the correct
+                    % sample time. propState will set get_sample_flag = true when
+                    % this happens
+                    propState
+                end
+                
+                % Advance to sample time
+                propState
+                get_sample_flag = false;
+                
+                % Get samples
+                updatePlots
+                
+                % Update progress
+                prog_str = sprintf('%2.2f',t_now/t_max*100);
+                if debug_level<1
+                    % Update progress
+                    fprintf(repmat('\b',1,length(prog_str)+1));
+                    fprintf([prog_str,'%%']);
+                else
+                    fprintf(['Progress:\t',prog_str,'%%\n'])
+                end
+            end
+        end
+    case 'init'
+        while t_now <= t_max  + dt
+            
+            % Do 1 step
+            propState_RK4
+            
+            % Update tNow
+            tNow        = tNow + abs(dt);
+            
+            % Update plot
+            if mod(plotIter,data_step) == 0
+                updatePlots
+                
+                % Write to video
+                if write_video_flag == true && pars.figuresOn == true
+                    frame = getframe(main_fig);
+                    writeVideo(vidObj,frame);
+                end
+            end
+            
+            % Update progress
+            fprintf(repmat('\b',1,length(str1)+1));
+            str1 = sprintf('%2.2f',tNow/Tmax*100);
+            fprintf([str1,'%%']);
+            plotIter = plotIter+1;
+            
+            
+        end
+end
+
+
+
+% Post-propagation
+psi_fun         = ifftn(psi_fun);
+
+
+%% PULL ARRAYS FROM GPU
+psi_fun         = gather(psi_fun);
+
+
+%% SAVE
+save
+
+
+
 %% Subfunctions
+    function N  = getN
+        N   = trapz(x,trapz(y,trapz(z,abs(psi_fun).^2,3),2),1);
+        if CUDA_on==true
+            N   = gather(N);
+        end
+        N_now   = N;
+    end
 
     function [p_xy,p_yz,p_zx]   = get_proj(psi_fun)
-        p_xy    = squeeze(sum(psi_fun,3));
-        p_yz    = squeeze(sum(psi_fun,1));
-        p_zx    = squeeze(sum(psi_fun,2));
+        % Get 2D projections
+        dens    = abs(psi_fun).^2;
+        p_xy    = squeeze(sum(dens,3));
+        p_yz    = squeeze(sum(dens,1));
+        p_zx    = squeeze(sum(dens,2));
+        
+        if CUDA_on==true
+            p_xy   = gather(p_xy);
+            p_yz   = gather(p_yz);
+            p_zx   = gather(p_zx);
+        end
     end
+
 	function updateDt(new_dt)
         % Update dt and dispersion operators
         
@@ -388,6 +538,38 @@ psi_fun         = fftn(psi_fun);
             updateDt(dtNew)
         end
     end
-
+    
+    function updatePlots
+        % Update things
+        time_vec(end+1) = t_now;
+        N_list(end+1)   = getN;
+        
+        % Update projections
+        [p_xy,p_yz,p_zx]        = get_proj(psi_fun);
+        set(plot_proj_xy,'CData',p_xy);
+        set(plot_proj_yz,'CData',p_yz);
+        set(plot_proj_zx,'CData',p_zx);
+        
+        % Update dt_list plot
+        set(plot_dt,'XData',dt_time_list,'YData',dt_list)
+        
+        % Save images
+        if saveImages3D==true || saveImages2D==true
+            sliceCounter     = sliceCounter + 1;
+        end
+        if saveImages3D == true
+            imageArray(:,:,:,t_next_samp_ind+1)  = psi_fun;
+        end
+        
+        if saveImages2D == true
+            imageArray_xy(:,:,t_next_samp_ind+1)    = p_xy;
+            imageArray_yz(:,:,t_next_samp_ind+1)    = p_yz;
+            imageArray_zx(:,:,t_next_samp_ind+1)    = p_zx;
+        end
+        
+        % Pause biefly and draw
+        drawnow
+        pause(0.001)
+    end
 
 end
