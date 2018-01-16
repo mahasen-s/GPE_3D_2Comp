@@ -10,14 +10,21 @@ function ARK45_GPE_3D_sim(pars)
 % Pass additional parameters as a struct
 
 %% UNLOAD FROM PARAMETER STRUCTURE
+% Font sizes for graphs
+font_SmlSize= 10;
+font_MedSize= 12;
+font_LrgSize= 14;
 
 % System parameters
 N               = pars.N;
 trap_fun        = pars.trap_fun;
 
 % Model parameters
-model_fun       = pars.model_fun;
-model_pars      = pars.model_pars;
+% model_fun       = pars.model_fun;
+% model_pars      = pars.model_pars;
+
+% Chemical potential
+chemical_potential  = pars.chemical_potential;
 
 % Interaction parameters
 U               = pars.U;
@@ -32,34 +39,47 @@ data_step_init  = pars.data_step_init;
 % Spatial size and discretisation
 size_x          = pars.size_x;
 size_y          = pars.size_y;
-size_z          = pars.size_z;                     
+size_z          = pars.size_z;
 n_x             = pars.n_x;
 n_y             = pars.n_y;
 n_z             = pars.n_z;
 
 % ARK45 options
 ark_tol                         = pars.ark_tol;
-ark_min_steps_before_change_dt  = pars.ark_tol;
-ark_min_step_size               = pars.ark_tol;
-ark_method                      = pars.ark_tol;
+ark_min_steps_before_change_dt  = pars.ark_min_steps_before_change_dt;
+ark_min_step_size               = pars.ark_min_step_size;
+ark_lo_ratio                    = 0.5;  % factor to reduce dt if step size too large
+ark_hi_ratio                    = 1.9;  % factor to increase dt by if step too small, it's better if ark_lo_ratio*ark_hi_ratio != 1
+ark_method                      = pars.ark_method;
+
+% File IO
+init_file       = pars.init_file;
+prop_file       = pars.prop_file;
 
 % Misc
 prop_mode       = pars.prop_mode;
 figures_on      = pars.figures_on;
 boundary_on     = pars.boundary_on;
 CUDA_on         = pars.CUDA_on;
-use_log_scale   = pars.use_log_scale;
 save_images_3D  = pars.save_images_3D;
 save_images_2D  = pars.save_images_2D;
 write_video     = pars.write_video;
-
+debug_level     = pars.debug_level;
 %% Process inputs
+% Set save file
+switch prop_mode
+    case 'init'
+        save_file = init_file;
+    case 'prop'
+        save_file = prop_file;
+end
 % Check if plotting envrionment is available
 if figures_on == true
     try
-        h_fig = figure(1);
+        main_fig = figure(1);
+        clf
     catch me
-        fprintf('Failed to create figures. Disabling visualisations . . .\n')
+        fprintf('Failed to create figures. Setting figures_on = false . . .\n')
         figures_on = false;
     end
 end
@@ -78,14 +98,14 @@ end
 switch prop_mode
     case 'init'
         % U must be a numeric scalar
-        if isnumeric(U)~=true || numel(U)~=true
+        if isnumeric(U)~=true || numel(U)~=1
             error('U must be a numeric scalar for prop_mode==init')
         end
     case 'prop'
         % If U is a numeric scalar, convert it to a function
         switch isnumeric(U)
             case true
-                if numel(U) == 1 && pr
+                if numel(U) == 1
                     U = @(t) U;
                 else
                     error('U must be a numeric scalar or a function a_s = f(t)')
@@ -131,10 +151,10 @@ Kz          = fftshift(Kz);
 disp_op     = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
 
 % Construct potential
-    % TODO: Better abstraction for function input
+% TODO: Better abstraction for function input
 switch class(trap_fun)
     case 'function_handle'
-        try 
+        try
             potential   = trap_fun(X,Y,Z);
         catch me
             error('trap_fun improperly constructed')
@@ -152,12 +172,12 @@ end
 
 %% INITIALISE STATE
 % Construct initial state, or load previous state
-    % TODO: Better abstraction for function input
+% TODO: Better abstraction for function input
 switch prop_mode
     case 'init'
-    % Construct TF approximate ground state
-    psi_fun     = real(sqrt((mu-potential)/abs(U(0))));
-    
+        % Construct TF approximate ground state
+        psi_fun     = real(sqrt((chemical_potential-potential)/abs(U)));
+        
     case 'prop'
         % Load from file
         data    = load(init_file);
@@ -165,38 +185,110 @@ switch prop_mode
         
         clear data
 end
-        
+
 % Clear coordinate meshes
 clear X Y Z
 
 %% SETUP ARRAYS FOR STORED QUANTITIES
 % Create storage for images
-if saveImages3D == true
-   nImages              = numel(sampleTimes) + 1;
-   imageArray           = zeros(n_x,n_y,n_z,nImages) ;
-   imageArray(:,:,:,1)  = psi_fun;
-   sliceCounter     = 1;
+if save_images_3D == true
+    n_image              = numel(sampleTimes) + 1;
+    image_array          = zeros(n_x,n_y,n_z,n_image) ;
+    image_array(:,:,:,1) = psi_fun;
 end
 
-if saveImages2D == true
-    nImages                 = numel(sampleTimes) + 1;
-    imageArray_xy           = zeros(n_x,n_y,nImages);
-    imageArray_yz           = zeros(n_y,n_z,nImages);
-    imageArray_zx           = zeros(n_z,n_x,nImages);   
+if save_images_2D == true
+    n_image                 = numel(sampleTimes) + 1;
+    image_array_xy          = zeros(n_x,n_y,n_image);
+    image_array_yz          = zeros(n_y,n_z,n_image);
+    image_array_zx          = zeros(n_z,n_x,n_image);
     
     [p_xy,p_yz,p_zx]        = get_proj(psi_fun);
     
-    imageArray_xy(:,:,1)    = p_xy;
-    imageArray_yz(:,:,1)    = p_yz;
-    imageArray_zx(:,:,1)    = p_zx;
-    
-    sliceCounter     = 1;
-end   
-%% SETUP FIGURES
+    image_array_xy(:,:,1)   = p_xy;
+    image_array_yz(:,:,1)   = p_yz;
+    image_array_zx(:,:,1)   = p_zx;
+end
 
+% Atom number
+N_now                   = getN;
+N_list                  = N_now;
+
+% U
+if isequal(prop_mode,'prop')
+    U_list  = U(0);
+end
+
+% Time
+time_vec                = 0;
+dt_list                 = dt;
+dt_time_list            = 0;
+
+%% SETUP FIGURES
+% subtightplot options
+stp         = [0.07,0.08];
+marg_h      = 1*[0.05,0.05];
+marg_w      = [0.14,0.0];
+
+% Plot projections
+[p_xy,p_yz,p_zx]        = get_proj(psi_fun);
+
+subtightplot(2,3,1,stp);
+plot_proj_xy            = imagesc(x,y,p_xy);
+xlabel('\boldmath$x$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+ylabel('\boldmath$y$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+set(gca,'ydir','normal')
+title('\boldmath$xy$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+
+subtightplot(2,3,2,stp);
+plot_proj_yz            = imagesc(y,z,p_yz);
+xlabel('\boldmath$y$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+ylabel('\boldmath$z$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+set(gca,'ydir','normal')
+title('\boldmath$yz$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+
+subtightplot(2,3,3,stp);
+plot_proj_zx            = imagesc(x,z,p_zx);
+xlabel('\boldmath$x$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+ylabel('\boldmath$z$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+set(gca,'ydir','normal')
+title('\boldmath$xz$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+
+% Plot atom number
+subtightplot(2,3,4,stp)
+plot_N     = plot(time_vec,N_list,'linewidth',1);%,'marker','o');
+box on
+grid on
+title('\boldmath$N(t)$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+xlabel('\boldmath$t$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+ylabel('\boldmath$N$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+xlim([0,t_max])
+
+if isequal(prop_mode,'prop')
+    % Plot U
+    subtightplot(2,3,5,stp)
+    plot_U     = plot(time_vec,U_list,'linewidth',1);
+    box on
+    grid on
+    title('\boldmath$U(t)$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+    xlabel('\boldmath$t$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+    ylabel('\boldmath$U$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+    xlim([0,t_max])
+    
+    % Plot dt
+    subtightplot(2,3,6,stp)
+    plot_dt    = plot(dt_time_list,dt_list,'linewidth',1);%,'marker','o');
+    box on
+    grid on
+    title('\boldmath$dt(t)$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+    xlabel('\boldmath$t$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+    ylabel('\boldmath$dt$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+    xlim([0,t_max])
+    set(gca,'yscale','log')
+end
 
 %% PUSH ARRAYS TO GPU
-if CUDA_flag == true
+if CUDA_on == true
     x           = gpuArray(x);
     y           = gpuArray(y);
     z           = gpuArray(z);
@@ -204,22 +296,185 @@ if CUDA_flag == true
     disp_op     = gpuArray(disp_op);
     potential   = gpuArray(potential);
     if boundary_on  == true
-        losses      = gpuArray(losses);    
+        losses      = gpuArray(losses);
     end
 end
 
 %% MAIN LOOP
+fprintf('Progress: ');
+prog_str = sprintf('00.00');
+fprintf([prog_str,'%%']);
+
+% Prepare to capture video
+if write_video == true
+    set(main_fig,'color','w')
+    vidObj  = VideoWriter([save_file,'_video.mj2'],'Archival');
+end
+
 % Pre-propagation
 psi_fun         = fftn(psi_fun);
 
-%% Subfunctions
+% Propagtion loop
+tic
+t_now    = 0;
+switch prop_mode
+    case 'prop'
+        ark_steps_without_change   = 0;
+        t_next_samp_ind   = 0;    % index for next time to sample
+        while t_now < t_max
+            while t_next_samp_ind<numel(sample_times)
+                % Get next sample time, tNext
+                t_next_samp_ind = t_next_samp_ind + 1;
+                t_next_samp     = sample_times(t_next_samp_ind);
+                get_sample_flag = false; % flag to tell prop_state to sample on current step
+                dt_is_shrunk_flag  = false; % flag to tell prop_state that dt was shrunk recently for sampling and that it should set dt = dt_pre_sample
+                dt_pre_sample   = dt;
+                
+                % Propagate until sample time. At the end of this while loop,
+                % tNow + dt = tNext
+                while get_sample_flag == false
+                    % Propagate until next step will put t_now at the correct
+                    % sample time. propState will set get_sample_flag = true when
+                    % this happens
+                    propState
+                    updateSamplesAndPlot
+                end
+                
+                % Advance to sample time
+                propState
+                get_sample_flag = false;
+                
+                % Get samples
+                updateSamplesAndPlot
+                
+                % Update progress
+                prog_str = sprintf('%2.2f',t_now/t_max*100);
+                if debug_level<1
+                    % Update progress
+                    fprintf(repmat('\b',1,length(prog_str)+1));
+                    fprintf([prog_str,'%%']);
+                else
+                    fprintf(['Progress:\t',prog_str,'%%\n'])
+                end
+            end
+        end
+    case 'init'
+        U_now   = U;
+        plotIter= 0;
+        while t_now <= t_max  + dt
+            
+            % Do 1 step
+            propStateRK4
+            
+            % Update t_now
+            t_now        = t_now + abs(dt);
+            
+            % Update plot
+            plotIter    = plotIter + 1;
+            if mod(plotIter,data_step_init) == 0
+                updateSamplesAndPlot
+            end
+            
+            % Update progress
+            prog_str = sprintf('%2.2f',t_now/t_max*100);
+            if debug_level<1
+                % Update progress
+                fprintf(repmat('\b',1,length(prog_str)+1));
+                fprintf([prog_str,'%%']);
+            else
+                fprintf(['Progress:\t',prog_str,'%%\n'])
+            end
+        end
+end
+
+% Close Video
+if write_video == true
+    close(vidObj);
+end
+
+% Post-propagation
+psi_fun         = ifftn(psi_fun);
+
+% Renormalise
+if strcmp(prop_mode,'init') == true
+    N_now  = getN;
+    psi_fun= psi_fun* sqrt(N/N_now);
+end
+
+% Gather
+if CUDA_on == true
+    psi_fun= gather(psi_fun);
+end
+
+% it's done
+time_taken = toc;
+fprintf('\nDone. Time taken \t=%4.3f\n',time_taken)
+
+%% SAVE
+fprintf('Saving  . . .\n')
+switch prop_mode
+    case 'init'
+        save(save_file,...
+            'time_vec',...
+            'N_list',...
+            'pars',...
+            'psi_fun');
+    case 'prop',
+        save(save_file,...
+            'time_vec',...
+            'N_list',...
+            'U_list',...
+            'dt_list',...
+            'dt_time_list',...
+            'pars',...
+            'psi_fun');
+end
+
+if save_images_2D == true
+    save(save_file,...
+        'image_array_xy',...
+        'image_array_yz',...
+        'image_array_zx',...
+        '-append')
+end
+
+if save_images_3D == true
+    save(save_file,...
+        'image_array',...
+        '-append')
+end
+
+fprintf('Done\n\n')
+
+%% GPE FUNCTION
+    function out = gpeFun(psi_fun)
+        dens    = abs(psi_fun).^2;
+        out     = 1i*((-U_now*dens-K3_im*dens.^2-potential).*psi_fun);
+    end
+
+%% SUBFUNCTIONS
+    function N  = getN
+        N   = trapz(x,trapz(y,trapz(z,abs(psi_fun).^2,3),2),1);
+        if CUDA_on==true
+            N   = gather(N);
+        end
+    end
 
     function [p_xy,p_yz,p_zx]   = get_proj(psi_fun)
-        p_xy    = squeeze(sum(psi_fun,3));
-        p_yz    = squeeze(sum(psi_fun,1));
-        p_zx    = squeeze(sum(psi_fun,2));
+        % Get 2D projections
+        dens    = abs(psi_fun).^2;
+        p_xy    = squeeze(sum(dens,3));
+        p_yz    = squeeze(sum(dens,1));
+        p_zx    = squeeze(sum(dens,2));
+        
+        if CUDA_on==true
+            p_xy   = gather(p_xy);
+            p_yz   = gather(p_yz);
+            p_zx   = gather(p_zx);
+        end
     end
-	function updateDt(new_dt)
+
+    function updateDt(new_dt)
         % Update dt and dispersion operators
         
         % Add point at start of jump
@@ -231,7 +486,7 @@ psi_fun         = fftn(psi_fun);
         
         % Check if smaller than min step
         if new_dt<16*eps(t_now)
-            debugInfo('dt is approaching machine precision, integrator results may be unreliable',-1);
+            debugInfo('dt is approaching machine precision, integrator results may be unreliable',2);
         end
         
         % Add point at end of jump
@@ -264,150 +519,115 @@ psi_fun         = fftn(psi_fun);
             com_z];
     end
 
-    function [N_now] = getN
-        N_now = trapz(x,trapz(y,trapz(z,abs(psi_fun).^2,3),2),1);
-    end
-    
-    function [N_now] = getN_data
-        N_now = trapz(x,trapz(y,trapz(z,abs(psi_fun_data).^2,3),1),2);
-    end
-
 %% UPDATE PLOTS
-    function updatePlots
+    function updateSamplesAndPlot
+        
+        % UnFFT
+        psi_fun = ifftn(psi_fun);
+        
+        % Update projections
+        [p_xy,p_yz,p_zx]   = get_proj(psi_fun);
+        
+        if save_images_3D == true || save_images_2D==true
+            sliceCounter     = sliceCounter+1;
+        end
+        
+        if save_images_3D == true
+            image_array(:,:,:,sliceCounter)  = psi_fun;
+        end
+        
+        if save_images_2D == true
+            image_array_xy(:,:,sliceCounter)    = p_xy;
+            image_array_yz(:,:,sliceCounter)    = p_yz;
+            image_array_zx(:,:,sliceCounter)    = p_zx;
+        end
+        
+        % UPDATE QUANTITIES
+        % Update time
+        time_vec(end+1) = t_now;
+        
+        % Update particle counts
+        N_now           = getN;
+        N_list(end+1)   = N_now;
+        
+        % Update U
+        if isequal(prop_mode,'prop')
+            U_list(end+1)   = U(t_now);
+        end
+        
+        
+        % UPDATE PLOTS
+        if figures_on == true
+            % Update prop plots
+            if isequal(prop_mode,'prop') == true
+                % Update dt
+                set(plot_dt,'XData',dt_time_list,'YData',dt_list);
+                
+                % Update U
+                set(plot_U,'XData',time_vec,'YData',U_list);
+            end
             
-            % UnHankel and UnFFT Unexpanded cloud
-            psi_fun = ifftn(psi_fun);
+            % Update N
+            set(plot_N,'XData',time_vec,'YData',N_list);
             
             % Update projections
-            [p_xy,p_yz,p_zx]   = get_proj(psi_fun);
-            
-            if saveImages3D == true || saveImages2D==true
-                sliceCounter     = sliceCounter+1;
-            end
-            
-            if saveImages3D == true
-                imageArray(:,:,:,sliceCounter)  = psi_fun;
-            end
-            
-            if saveImages2D == true
-                nImages                 = numel(sampleTimes) + 1;
-                
-                imageArray_xy(:,:,sliceCounter)    = p_xy;
-                imageArray_yz(:,:,sliceCounter)    = p_yz;
-                imageArray_zx(:,:,sliceCounter)    = p_zx;
-            end
-            
-            % Update time
-            time_vec(end+1) = tNow;
-            
-            % Update dt
-            if isequal(propMode,'prop') == true
-                set(plot_dtList,'XData',dtTimeList,'YData',dtList);
-            end
-            
-            % Update particle counts
-            [n85,n87]          = getN_data;
-            Nlist_85(end+1)    = gather(n85);
-            Nlist_87(end+1)    = gather(n87);
-            if pars.figuresOn == true
-                set(plot_Nlist_85,'XData',time_vec,'YData',Nlist_85);
-                set(plot_Nlist_87,'XData',time_vec,'YData',Nlist_87);
-            end
-            
-            % Update Widths
-                % Rb85
-                [widths,coms]          = getMoments;
-                width_x_list_85(end+1) = gather(widths(1,1));
-                width_y_list_85(end+1) = gather(widths(2,1));
-                width_z_list_85(end+1) = gather(widths(3,1));
-                com_x_list_85(end+1)   = gather(coms(1,1));
-                com_y_list_85(end+1)   = gather(coms(2,1));
-                com_z_list_85(end+1)   = gather(coms(3,1));
-                if pars.figuresOn == true
-                    set(plot_width_x_85,'XData',time_vec,'YData',width_x_list_85);
-                    set(plot_width_z_85,'XData',time_vec,'YData',width_z_list_85);
-                    set(plot_com_z_85,'XData',time_vec,'YData',com_z_list_85);
-                end
-
-                % Rb87
-                width_x_list_87(end+1) = gather(widths(1,2));
-                width_y_list_87(end+1) = gather(widths(2,2));
-                width_z_list_87(end+1) = gather(widths(3,2));
-                com_x_list_87(end+1)   = gather(coms(1,2));
-                com_y_list_87(end+1)   = gather(coms(2,2));
-                com_z_list_87(end+1)   = gather(coms(3,2));
-                if pars.figuresOn == true
-                    set(plot_width_x_87,'XData',time_vec,'YData',width_x_list_87);
-                    set(plot_width_z_87,'XData',time_vec,'YData',width_z_list_87);
-                    set(plot_com_z_87,'XData',time_vec,'YData',com_z_list_87);
-                end
-            
-            if  pars.figuresOn == true
-                if use_log_scale == true
-                    set(plot_density_85_zx,'CData',log(1+ps2_85_proj_zx));
-                    set(plot_density_87_zx,'CData',log(1+ps2_87_proj_zx));
-                    set(plot_density_85_xy,'CData',log(1+ps2_85_proj_xy));
-                    set(plot_density_87_xy,'CData',log(1+ps2_87_proj_xy));
-                else
-                    set(plot_density_85_zx,'CData',ps2_85_proj_zx);
-                    set(plot_density_87_zx,'CData',ps2_87_proj_zx);
-                    set(plot_density_85_xy,'CData',ps2_85_proj_xy);
-                    set(plot_density_87_xy,'CData',ps2_87_proj_xy);
-                end
-                set(plot_density_title_85_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{85}$ Density, \\boldmath$t = %4.1f$ ms}',1000*tNow*Time));
-                set(plot_density_title_87_zx,'String',sprintf('\\textbf{Rb\\boldmath$^{87}$ Density, \\boldmath$t = %4.1f$ ms}',1000*tNow*Time));
-                
-                
-            end
-            
-            
-            % Update Ua plot
-            if RampOn == true
-                Ua_list(end+1)  = Ua85;
-                if pars.figuresOn == true
-                    set(h_ua,'XData',time_vec,'YData',Ua_list);
-                end
-            end
-            
-            if pars.figuresOn == true
-                drawnow
-            end
+            set(plot_proj_xy,'CData',p_xy);
+            set(plot_proj_yz,'CData',p_yz);
+            set(plot_proj_zx,'CData',p_zx);
+        end
+        
+        % FFT
+        psi_fun     = fftn(psi_fun);
+        
+        drawnow
+        pause(0.001);
+        
+        % Write video frame
+        if write_video == true
+            frame   = getframe(main_fig);
+            writeVideo(vidObj,frame)
+        end
     end
 
 %% PROP FUN
     function propState
+        % Get current U
+        U_now   = U(t_now);
+        
         % Loop while step is not successful
         try_again   = true;     % try_again=false when step is successful
         
+        % Store old state in case current step fails
+        psi_fun_old = psi_fun;
+        
         while try_again==true
-            % Store old state in case current step fails
-            psi_fun_old = psi_fun;
+            % Restore old values
+            psi_fun     = psi_fun_old;
             
             % 1st half of dispersion
             psi_fun     = disp_op.*psi_fun;
             psi_fun     = ifftn(psi_fun);
             
             % Compute interaction using ARK45(DP)
-            try_again   = true;     % try_again==false when step is successful
             dt_changed  = false;    % step successful, but dt needs to be increased for efficiency, or reduced for sampling
             
             % ARK45(DP)
-            P_A   = dt*model_fun(psi_fun,potential,model_pars);
-            P_B   = dt*model_fun(psi_fun +          1/5*P_A,potential,model_pars);
-            P_C   = dt*model_fun(psi_fun +         3/40*P_A +       9/40*P_B,potential,model_pars);
-            P_D   = dt*model_fun(psi_fun +        44/45*P_A -      56/15*P_B +       32/9*P_C,potential,model_pars);
-            P_E   = dt*model_fun(psi_fun +   19372/6561*P_A - 25360/2187*P_B + 64448/6561*P_C - 212/729*P_D,potential,model_pars);
-            P_F   = dt*model_fun(psi_fun +    9017/3168*P_A -     355/33*P_B + 46732/5247*P_C +	49/176*P_D -    5103/18656*P_E,potential,model_pars);
+            P_A   = dt*gpeFun(psi_fun);
+            P_B   = dt*gpeFun(psi_fun +          1/5*P_A);
+            P_C   = dt*gpeFun(psi_fun +         3/40*P_A +       9/40*P_B);
+            P_D   = dt*gpeFun(psi_fun +        44/45*P_A -      56/15*P_B +       32/9*P_C);
+            P_E   = dt*gpeFun(psi_fun +   19372/6561*P_A - 25360/2187*P_B + 64448/6561*P_C - 212/729*P_D);
+            P_F   = dt*gpeFun(psi_fun +    9017/3168*P_A -     355/33*P_B + 46732/5247*P_C +	49/176*P_D -    5103/18656*P_E);
             
             % 5th, 4th order estimates
-            P_G   = dt*model_fun(psi_fun +       35/384*P_A +          0*P_B +   500/1113*P_C + 125/192*P_D -     2187/6784*P_E +    11/84*P_F           ,potential,model_pars);
-            P_H   = dt*model_fun(psi_fun +   5179/57600*P_A +          0*P_B + 7571/16695*P_C + 393/640*P_D -  92097/339200*P_E + 187/2100*P_F + 1/40*P_G,potential,model_pars);
+            P_G   = dt*gpeFun(psi_fun +       35/384*P_A +          0*P_B +   500/1113*P_C + 125/192*P_D -     2187/6784*P_E +    11/84*P_F           );
+            P_H   = dt*gpeFun(psi_fun +   5179/57600*P_A +          0*P_B + 7571/16695*P_C + 393/640*P_D -  92097/339200*P_E + 187/2100*P_F + 1/40*P_G);
             
             % Calculate error
-            P_err = sum(abs(P_G(:)-P_H(:)));%/numel(P_G);
-            s     = min((dt*ark_tol./(2*(t_max)*P_err)).^(1/5));
-            
-            if s<0
+            P_err = sum(abs(P_G(:)-P_H(:)))/numel(P_G);
+            s     = min((dt*ark_tol./(2*(t_max)*P_err)).^(1/4));
+
+            if s<1 || isnan(s)==true || isinf(s)==true
                 % Previous step was too large. Halve and try again.
                 updateDt(ark_lo_ratio*dt)
                 try_again  = true;
@@ -455,9 +675,9 @@ psi_fun         = fftn(psi_fun);
                         dt_is_shrunk_flag = false;
                         
                         debugInfo(sprintf('Restoring dt to pre-sample value, dt->%4.3e',dtNew),2)
+                    else
+                        debugInfo(sprintf('Increasing step, dt->%4.3e',dtNew),2)
                     end
-                    
-                    debugInfo(sprintf('Increasing step, dt->%4.3e',dtNew),2)
                 end
                 try_again  = false;
                 
@@ -491,7 +711,7 @@ psi_fun         = fftn(psi_fun);
                     
                     debugInfo(sprintf('Restoring dt to pre-sample value, dt->%4.3e t->%4.3e',dtNew,t_now),2)
                 else
-                    debugInfo(sprintf('Keeping step, t->%4.3e',dtNew),4)
+                    debugInfo(sprintf('Keeping step, t->%4.3e',t_now),4)
                 end
                 try_again  = false;
                 
@@ -504,25 +724,53 @@ psi_fun         = fftn(psi_fun);
                 psi_fun   = psi_fun + P_G;
             end
         end
+        
         % 2nd half of dispersion
+        psi_fun     = fftn(psi_fun);
         psi_fun     = disp_op.*psi_fun;
-        psi_fun     = ifftn(psi_fun);
-            
+        
+        
         % Update dt
         if dt_changed == true
             updateDt(dtNew)
         end
     end
 
+    function propStateRK4
+        % Apply 1st half of dispersion
+        psi_fun     = disp_op.*psi_fun;
+        psi_fun     = ifftn(psi_fun);
+        
+        % Interaction (RK4)
+        P_A     = dt*gpeFun(psi_fun);
+        P_B     = dt*gpeFun(psi_fun+ 1/2*P_A);
+        P_C     = dt*gpeFun(psi_fun+ 1/2*P_B);
+        P_D     = dt*gpeFun(psi_fun+ P_C);
+        
+        psi_fun = psi_fun + 1/6*(P_A + 2*P_B + 2*P_C + P_D);
+        
+        % Renormalise
+        psi_fun = psi_fun*sqrt(N/getN);
+        
+        % Apply 2nd half of dispersion
+        psi_fun     = fftn(psi_fun);
+        psi_fun     = disp_op.*psi_fun;
+    end
 
+%% MISC FUN
+    function debugInfo(str,level)
+        if debug_level>level
+            fprintf([str,'\n'])
+        end
+    end
 end
 
 %% EXTERNAL FUNCTIONS
 function mask = boundaries(n_i,n_j,n_k)
-    % probably should use something less bad
-    x = linspace(-1.1,1.1,n_i);
-    y = linspace(-1.1,1.1,n_j);
-    z = linspace(-1.1,1.1,n_k);
-    [X,Y,Z] = meshgrid(x,y,z);
-    mask = exp(-(X.^40+Y.^40+Z.^40));
+% probably should use something less bad
+x = linspace(-1.1,1.1,n_i);
+y = linspace(-1.1,1.1,n_j);
+z = linspace(-1.1,1.1,n_k);
+[X,Y,Z] = meshgrid(x,y,z);
+mask = exp(-(X.^40+Y.^40+Z.^40));
 end
