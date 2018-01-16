@@ -36,7 +36,7 @@ size_y_exp  = 6e-6;
 size_z_exp  = 50e-6;
 
 % Set interaction strengths
-a_s         = 50*a0;            % scattering length
+a_s         = 50*bohr_radius;            % scattering length
 U_exp       = (4*pi*hbar^2*a_s/mass);
 K3_im_exp   = -4.41e-41*hbar;   % 3-body recombination losses
 
@@ -70,8 +70,8 @@ size_y          = size_y_exp/Length;
 size_z          = size_z_exp/Length;
 
 % Time stuff
-t_max           = Tmax_exp/Time;        
-dt_exp          = dt_exp/Time;          
+t_max           = t_max_exp/Time;        
+dt              = dt_exp/Time;          
 sample_times    = sample_times_exp/Time;
 
 %% Define functions
@@ -79,7 +79,7 @@ sample_times    = sample_times_exp/Time;
 trap_fun    = @(x,y,z) 0.5*((wx*x).^2 + (wy*y).^2 + (wz*z).^2); % can also just supply array
 
 % Scattering length (e.g. if it is changing over time)
-f           = @(x) max(15*cos(1/(5e-3)/pi*x),10)*U*a0/a_s;
+f           = @(x) max(15*cos(1/(5e-3)/pi*x),10)*U*bohr_radius/a_s;
 
 % Model function
 model_fun   = @gpe_cq_3body_losses;
@@ -99,7 +99,7 @@ pars    = struct(...
             'n_z',n_z);
         
 % Set model parameters
-pars    = struct(...,
+pars    = appendfields(pars,...
             'model_fun',model_fun,...
             'model_pars',model_pars);
             
@@ -142,7 +142,7 @@ pars    = appendfields(pars,...
         
 % Set init/prop
 pars    = appendfields(pars,...
-            'propMode','init',...
+            'prop_mode','init',...
             'init_file',groundstate_file,...
             'prop_file',propagation_file,...
             'overwriteInitFile',true);
@@ -150,47 +150,15 @@ pars    = appendfields(pars,...
 % Save parameters to file
 save(pars_file,'pars')
 
-% Get groundstate
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0',a85_eqIntStr)]'.','p');
-% pars.fileIn         = gsFile;
-% CQSSFM_8587_3D_sim(pars)
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_85Low',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [1,-1]*10;
-% CQSSFM_8587_3D_sim(pars)
-% 
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_87Low',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [-1,1]*10;
-% CQSSFM_8587_3D_sim(pars)
 
-gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Sym',pars.scat_init_85)],'.','p');
-pars.fileIn         = gsFile;
-pars.initModeVars   = [0,0,1];
-ARK45_SSFM_8587_3D_sim(pars)
+% Initialise
+pars.prop_mode  = 'init';
+pars.U          = f(0);
 
-% pars.propMode       = 'prop';
-% ARK45_SSFM_8587_3D_sim(pars)
-
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Shift1',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [-6,6,1];
-% CQSSFM_8587_3D_sim(pars)
-% 
-% gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Shift2',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [5,-5,1];
-% CQSSFM_8587_3D_sim(pars)
-
-% Prop
-% parsIn                  =   pars;
-% propFile                =  [file_prefix,sprintf('8587_waveguideProp_as=%4.1fa0',parsIn.scat_prop_85)];
-% propFile                = strrep(propFile,'.','p');
-% fprintf('Processing file %s . . . \n',propFile)
-% parsIn.propMode         = 'prop';
-% parsIn.fileOut          = propFile;
-% CQSSFM_8587_3D_sim(parsIn)
-
+% % Propagate
+% pars.prop_mode  = 'prop';
+% pars.U          = f;
+% ARK45_GPE_3D_sim(pars)
 
 
 end

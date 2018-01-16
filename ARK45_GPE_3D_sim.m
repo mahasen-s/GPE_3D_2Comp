@@ -1,20 +1,9 @@
 function ARK45_GPE_3D_sim(pars)
-% Explicit visualisation controls
-% Checks for whether figure was initialised done
-% Video writing contingent on this check done
-
 % Should change the way arrays are written; should store piece wise on disk
-
-% Nondimensionalised interface done
-
 % Switch for Cubic-Quintic GPE
-
 % Functional form of integrator
 
 % Cash-Carp and Fehlberg options
-
-% trap can be provided either as a function or as an array
-
 % Include checks for Levy-Friedrichs-Courant condition? ~dt/dx^2?
 
 % Pass model as a reference
@@ -23,7 +12,7 @@ function ARK45_GPE_3D_sim(pars)
 %% UNLOAD FROM PARAMETER STRUCTURE
 
 % System parameters
-N               = pars.N_85;
+N               = pars.N;
 trap_fun        = pars.trap_fun;
 
 % Model parameters
@@ -222,6 +211,7 @@ end
 %% MAIN LOOP
 % Pre-propagation
 psi_fun         = fftn(psi_fun);
+
 %% Subfunctions
 
     function [p_xy,p_yz,p_zx]   = get_proj(psi_fun)
