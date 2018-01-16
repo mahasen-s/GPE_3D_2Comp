@@ -156,10 +156,10 @@ save(pars_file,'pars')
 
 
 % Initialise
-% pars.prop_mode  = 'init';
-% pars.U          = U;
-% pars.t_max      = 5e-3/Time;
-% ARK45_GPE_3D_sim(pars)
+pars.prop_mode  = 'init';
+pars.U          = U;
+pars.t_max      = 5e-3/Time;
+ARK45_GPE_3D_sim(pars)
 
 % Propagate
 pars.prop_mode  = 'prop';
