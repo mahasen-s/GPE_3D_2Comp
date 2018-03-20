@@ -49,6 +49,8 @@ sample_times_exp    = linspace(0,50e-3,100);% times to sample system
 Time    = 1/wx_exp;
 Energy  = hbar/Time;    
 Length  = sqrt(hbar*Time/mass);
+KE_const= hbar^2 / (2*mass) / (Length^2 * Energy);
+D_const = hbar / (4*mass) / (Length^2) * Time;
 
 % Self-interaction
 U           = U_exp/Length^3/Energy;
@@ -97,6 +99,11 @@ pars    = struct(...
             'n_x',n_x ,...
             'n_y',n_y ,...
             'n_z',n_z);
+        
+% Set normalisation parameters
+pars    = appendfields(pars,...
+            'KE_const',KE_const,...
+            'D_const',D_const);
         
 % Set model parameters
 pars    = appendfields(pars,...
@@ -158,7 +165,7 @@ save(pars_file,'pars')
 % Initialise
 pars.prop_mode  = 'init';
 pars.U          = U;
-pars.t_max      = 5e-3/Time;
+pars.t_max      = 20e-3/Time;
 ARK45_GPE_3D_sim(pars)
 
 % Propagate

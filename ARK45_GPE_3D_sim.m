@@ -15,6 +15,10 @@ font_SmlSize= 10;
 font_MedSize= 12;
 font_LrgSize= 14;
 
+% Normalisation parameters
+KE_const        = pars.KE_const;
+D_const         = pars.D_const;
+
 % System parameters
 N               = pars.N;
 trap_fun        = pars.trap_fun;
@@ -148,7 +152,7 @@ Ky          = fftshift(Ky);
 Kz          = fftshift(Kz);
 
 % Approximate dispersion in frequency space
-disp_op     = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
+disp_op     = get_disp_op;
 
 % Construct potential
 % TODO: Better abstraction for function input
@@ -191,6 +195,7 @@ clear X Y Z
 
 %% SETUP ARRAYS FOR STORED QUANTITIES
 % Create storage for images
+t_now    = 0;
 if save_images_3D == true
     n_image              = numel(sampleTimes) + 1;
     image_array          = zeros(n_x,n_y,n_z,n_image) ;
@@ -211,8 +216,9 @@ if save_images_2D == true
 end
 
 % Atom number
-N_now                   = getN;
+N_now                   = get_N;
 N_list                  = N_now;
+mu_list                 = get_mu;
 
 % U
 if isequal(prop_mode,'prop')
@@ -233,21 +239,21 @@ marg_w      = [0.14,0.0];
 % Plot projections
 [p_xy,p_yz,p_zx]        = get_proj(psi_fun);
 
-subtightplot(2,3,1,stp);
+subtightplot(2,4,1,stp);
 plot_proj_xy            = imagesc(x,y,p_xy);
 xlabel('\boldmath$x$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
 ylabel('\boldmath$y$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
 set(gca,'ydir','normal')
 title('\boldmath$xy$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
 
-subtightplot(2,3,2,stp);
+subtightplot(2,4,2,stp);
 plot_proj_yz            = imagesc(y,z,p_yz);
 xlabel('\boldmath$y$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
 ylabel('\boldmath$z$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
 set(gca,'ydir','normal')
 title('\boldmath$yz$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
 
-subtightplot(2,3,3,stp);
+subtightplot(2,4,3,stp);
 plot_proj_zx            = imagesc(x,z,p_zx);
 xlabel('\boldmath$x$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
 ylabel('\boldmath$z$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
@@ -255,8 +261,8 @@ set(gca,'ydir','normal')
 title('\boldmath$xz$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
 
 % Plot atom number
-subtightplot(2,3,4,stp)
-plot_N     = plot(time_vec,N_list,'linewidth',1);%,'marker','o');
+subtightplot(2,4,4,stp)
+plot_N      = plot(time_vec,mu_list,'linewidth',1);%,'marker','o');
 box on
 grid on
 title('\boldmath$N(t)$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
@@ -264,9 +270,19 @@ xlabel('\boldmath$t$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter',
 ylabel('\boldmath$N$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
 xlim([0,t_max])
 
+% Plot chemical potential
+subtightplot(2,4,5,stp)
+plot_mu     = plot(time_vec,mu_list,'linewidth',1);%,'marker','o');
+box on
+grid on
+title('\boldmath$\mu(t)$','FontWeight','Bold','FontSize',font_LrgSize,'Interpreter','Latex');
+xlabel('\boldmath$t$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+ylabel('\boldmath$\mu$','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
+xlim([0,t_max])
+
 if isequal(prop_mode,'prop')
     % Plot U
-    subtightplot(2,3,5,stp)
+    subtightplot(2,4,6,stp)
     plot_U     = plot(time_vec,U_list,'linewidth',1);
     box on
     grid on
@@ -276,7 +292,7 @@ if isequal(prop_mode,'prop')
     xlim([0,t_max])
     
     % Plot dt
-    subtightplot(2,3,6,stp)
+    subtightplot(2,4,7,stp)
     plot_dt    = plot(dt_time_list,dt_list,'linewidth',1);%,'marker','o');
     box on
     grid on
@@ -316,7 +332,6 @@ psi_fun         = fftn(psi_fun);
 
 % Propagtion loop
 tic
-t_now    = 0;
 switch prop_mode
     case 'prop'
         ark_steps_without_change   = 0;
@@ -397,7 +412,7 @@ psi_fun         = ifftn(psi_fun);
 
 % Renormalise
 if strcmp(prop_mode,'init') == true
-    N_now  = getN;
+    N_now  = get_N;
     psi_fun= psi_fun* sqrt(N/N_now);
 end
 
@@ -416,10 +431,10 @@ switch prop_mode
     case 'init'
         save(save_file,...
             'time_vec',...
-            'N_list',...
+            'mu_list',...
             'pars',...
             'psi_fun');
-    case 'prop',
+    case 'prop'
         save(save_file,...
             'time_vec',...
             'N_list',...
@@ -453,11 +468,31 @@ fprintf('Done\n\n')
     end
 
 %% SUBFUNCTIONS
-    function N  = getN
+    function N  = get_N
         N   = trapz(x,trapz(y,trapz(z,abs(psi_fun).^2,3),2),1);
         if CUDA_on==true
             N   = gather(N);
         end
+    end
+
+    function mu  = get_mu
+       psi_FFT = ( dx*dy*dz/((2*pi)^(3/2)) )*fftshift(fftn(fftshift(psi_fun)));
+       KE = KE_const *trapz(kvec_x,trapz(kvec_y,trapz(kvec_z,(ifftshift(Kx).^2+ifftshift(Ky).^2+ifftshift(Kz).^2) .* abs(psi_FFT).^2,3),2),1);
+       switch prop_mode
+           case 'init'
+               PE   = trapz(x,trapz(y,trapz(z,potential .* abs(psi_fun).^2 + U*abs(psi_fun).^4,3),2),1);
+           case 'prop'
+               PE   = trapz(x,trapz(y,trapz(z,potential .* abs(psi_fun).^2 + U(t_now)*abs(psi_fun).^4,3),2),1);
+       end
+       Ntot = trapz(x,trapz(y,trapz(z,abs(psi_fun).^2,3),2),1);
+       mu = (KE + PE) / Ntot;
+       if CUDA_on==true
+           mu   = gather(mu);
+       end
+    end
+
+    function disp_op = get_disp_op
+        disp_op      = exp(-1i*D_const*dt*(Kx.^2+Ky.^2+Kz.^2));
     end
 
     function [p_xy,p_yz,p_zx]   = get_proj(psi_fun)
@@ -494,7 +529,7 @@ fprintf('Done\n\n')
         dt_time_list(end+1)  = t_now;
         
         % Recompute dispersion operator
-        disp_op         = exp(-1i*0.25*dt*(Kx.^2+Ky.^2+Kz.^2));
+        disp_op         = get_disp_op;
     end
 
     function [widths,coms] = getMoments
@@ -547,8 +582,9 @@ fprintf('Done\n\n')
         time_vec(end+1) = t_now;
         
         % Update particle counts
-        N_now           = getN;
+        N_now           = get_N;
         N_list(end+1)   = N_now;
+        mu_list(end+1)  = get_mu;
         
         % Update U
         if isequal(prop_mode,'prop')
@@ -567,8 +603,9 @@ fprintf('Done\n\n')
                 set(plot_U,'XData',time_vec,'YData',U_list);
             end
             
-            % Update N
+            % Update mu, N
             set(plot_N,'XData',time_vec,'YData',N_list);
+            set(plot_mu,'XData',time_vec,'YData',mu_list);
             
             % Update projections
             set(plot_proj_xy,'CData',p_xy);
@@ -750,7 +787,7 @@ fprintf('Done\n\n')
         psi_fun = psi_fun + 1/6*(P_A + 2*P_B + 2*P_C + P_D);
         
         % Renormalise
-        psi_fun = psi_fun*sqrt(N/getN);
+        psi_fun = psi_fun*sqrt(N/get_N);
         
         % Apply 2nd half of dispersion
         psi_fun     = fftn(psi_fun);
