@@ -137,7 +137,7 @@ pars    = appendfields(pars,...
 pars    = appendfields(pars,...
             't_max',t_max,...
             'dt',dt,...
-            'data_step_init',100,...
+            'data_step_init',10,...
             'sample_times',sample_times);
 
 % Set misc options
@@ -165,8 +165,8 @@ save(pars_file,'pars')
 % Initialise
 pars.prop_mode  = 'init';
 pars.U          = U;
-pars.t_max      = 20e-3/Time;
-ARK45_GPE_3D_sim(pars)
+pars.t_max      = 100e-3/Time;
+ARK45_IP_GPE_3D_sim(pars)
 
 % Propagate
 pars.prop_mode  = 'prop';
