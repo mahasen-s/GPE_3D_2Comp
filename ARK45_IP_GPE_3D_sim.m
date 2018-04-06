@@ -56,17 +56,6 @@ ark_lo_ratio                    = 0.5;  % factor to reduce dt if step size too l
 ark_hi_ratio                    = 1.9;  % factor to increase dt by if step too small, it's better if ark_lo_ratio*ark_hi_ratio != 1
 ark_method                      = pars.ark_method;
 
-% ARK45 misc vars
-ark_safety_factor               = 0.9;
-ark_last_norm_error             = 1.0;
-ark_attempted_steps             = 0;
-ark_scaling_factor              = 1.0;
-[ark_a,ark_b,ark_c,ark_cs,ark_d,ark_e,ark_f,ark_g]                = ark45_butcherTableau_DP;
-
-% File IO
-init_file       = pars.init_file;
-prop_file       = pars.prop_file;
-
 % Misc
 prop_mode       = pars.prop_mode;
 figures_on      = pars.figures_on;
@@ -76,6 +65,22 @@ save_images_3D  = pars.save_images_3D;
 save_images_2D  = pars.save_images_2D;
 write_video     = pars.write_video;
 debug_level     = pars.debug_level;
+
+% ARK45 misc vars
+ark_safety_factor               = 0.9;
+ark_last_norm_error             = 1.0;
+ark_attempted_steps             = 0;
+ark_scaling_factor              = 1.0;
+[ark_a,ark_b,ark_c,ark_cs,ark_d,ark_e,ark_f,ark_g]                = ark45_butcherTableau_DP(CUDA_on);
+
+% Use IP operators
+use_IP          = pars.IP;
+
+% File IO
+init_file       = pars.init_file;
+prop_file       = pars.prop_file;
+
+
 %% Process inputs
 % Set save file
 switch prop_mode
@@ -135,6 +140,8 @@ switch prop_mode
         K3_im   = 0;
 end
 
+%% 
+
 %% Construct meshes
 % Construct spatial vectors
 dx      = 2*size_x/n_x;
@@ -152,14 +159,31 @@ kvec_x      = pi/size_x*linspace(-n_x/2,n_x/2-1,n_x)';
 kvec_y      = pi/size_y*linspace(-n_y/2,n_y/2-1,n_y)';
 kvec_z      = pi/size_z*linspace(-n_z/2,n_z/2-1,n_z)';
 
-% Create k-space meshes and centre zero-frequency component
-[Kx,Ky,Kz]  = ndgrid(kvec_x,kvec_y,kvec_z);
-Kx          = fftshift(Kx);
-Ky          = fftshift(Ky);
-Kz          = fftshift(Kz);
+% We can leverage broadcast operations to keep kvec_* as vectors without
+% creating meshes. This gives a ~20% improvement in speed exp and * ops as
+% well as a massive reduction in space requirements
+Kx          = fftshift(reshape(kvec_x,[numel(kvec_x),1]));
+Ky          = fftshift(reshape(kvec_y,[1,numel(kvec_y)]));
+Kz          = fftshift(reshape(kvec_z,[1,1,numel(kvec_z)]));
+
+% [Kx,Ky,Kz]  = ndgrid(kvec_x,kvec_y,kvec_z);
+% Kx          = fftshift(Kx);
+% Ky          = fftshift(Ky);
+% Kz          = fftshift(Kz);
 
 % Approximate dispersion in frequency space
-disp_op     = get_disp_op;
+if use_IP == false || strcmp(prop_mode,'init') == true
+    disp_op         = zeros(n_x,n_y,n_z);
+    disp_op_coeff   = 1;
+else
+    disp_op         = zeros(n_x,n_y,n_z,5);
+    disp_op_coeff   = reshape(  [1.0,...
+                                 4.0/5.0,...
+                                 7.0/10.0,...
+                                 2.0/5.0,...
+                                 1.0/8.0],[1,1,1,5]);
+end
+replace_disp_op;
 
 % Construct potential
 % TODO: Better abstraction for function input
@@ -363,7 +387,11 @@ switch prop_mode
                 end
                 
                 % Advance to sample time
-                propState
+                if use_IP == true
+                    propState_RK45IP
+                else
+                    propState
+                end
                 get_sample_flag = false;
                 
                 % Get samples
@@ -498,14 +526,18 @@ fprintf('Done\n\n')
        end
     end
 
-    function disp_op = get_disp_op
-        disp_op      = exp(-1i*D_const*dt*(Kx.^2+Ky.^2+Kz.^2));
+    function replace_disp_op
+        % Update dispersion operator for new dt
+        % Note, that disp_op_coeff is 1D for non-IP and 4D for IP
+        % (singleton in dims 1,2,3). 
+        disp_op      = exp(-1i*disp_op_coeff*D_const*dt*(Kx.^2+Ky.^2+Kz.^2));
     end
 
     function disp_op = get_disp_op_IP
-        % Calculate dispersion operator in the interacting picture
+        in the interacting picture
         % We actually need 5 arrays
         
+        disp
         disp_op      = exp(-1i*D_const*dt*(Kx.^2+Ky.^2+Kz.^2));
     end
 
@@ -543,7 +575,7 @@ fprintf('Done\n\n')
         dt_time_list(end+1)  = t_now;
         
         % Recompute dispersion operator
-        disp_op         = get_disp_op;
+        replace_disp_op;
     end
 
     function [widths,coms] = getMoments
@@ -799,33 +831,136 @@ fprintf('Done\n\n')
         
         while try_again==true
             % Restore old values
+            
             psi_fun     = psi_fun_old;
+                        
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % a_i = D(a_2*Dt)[y1] ?
+            psi_fun     = disp_op(:,:,:,1).*psi_fun;    % _segment1_ip_evolve(1)
+            psi_fun     = ifftn(psi_fun);               % _xy_main_basis_transform(1)   % transform to (x,y)
+            
+            % a_k = y1. Should be before the above step; avoids two FFTs
+            a_k         = psi_fun;                      % (x,y)
+            
+            % a_i = y1
+            a_i         = psi_fun;                      % _aifield_xy_main = _xy_main, (x,y)
+            psi_check   = psi_fun;                      % memcpy(_checkfield_xy_main, _xy_main), (x,y)
+                        
+            % _active_xy_main = _akfield_xy_main
+            
+            % a_k  = G(a_k,t) 
+            a_k         = dt*gpeFun(a_k);               % _segment1_calculate_delta_a(_step)
+            
+            % a_k  = D(a_2*dt)[a_k]
+            a_k         = ifftn(disp_op(:,:,:,1).*fftn(a_k));   % _segment1_ip_evolve(1), (x,y)
+            
+            % y1 = y1 + c_1*a_k
+            psi_fun     = psi_fun + ark_c(1)*a_k;       % (x,y)
+            
+            % y2 = y2 + cs_1*a_k
+            psi_check   = psi_check + ark_cs(1)*a_k;    % (x,y)
+            
+            % a_k = a_i + b_21*a_k
+            a_k         = a_i + ark_b(2,1)*a_k;         % (x,y)
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % t += _a[2] * _ step;
+            
+            % ?? a_k    = D(-a_3*dt)[a_k]
+            a_k         = fftn(a_k)./disp_op(:,:,:,2);          % _segment1_ip_evolve(-2), (kx,ky)
+            
+            % a_k = G[a_k, t + aa_2*dt]
+            a_k         = dt*gpeFun(ifftn(a_k));                % (x,y)
+            
+            % ?? a_k    = D(a_3*dt)[a_k]
+            a_k         = ifftn(disp_op(:,:,:,2).*fftn(a_k));   % (x,y)
+            
+            % c_2 == cs_2 == 0 ??
+            % a_j = d_1*a_i + d_2*y1 + d_3*a_k
+            a_j         = ark_d(1)*a_i + ark_d(2)*psi_fun + ark_d(3)*a_k;
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % t += _a[3] * _step;
+            
+            % active_xy_main = _ajfield_xy_main
+            
+            % a_j = D(-(a_3-a_2)*dt)[a_j]
+            a_j         = fftn(a_j)./disp_op(:,:,:,3);          % _segment1_ip_evolve(-3), (ky,ky)
+            
+            % a_j = G[a_j, t+ aa_3*dt]
+            a_j         = dt*gpeFun(ifftn(a_j));                % (x,y)
             
             
-            % 
-            a_k         = psi_fun;
+            % a_j = D(-(a_3-a_2)*dt)[a_j
+            a_j         = ifftn(disp_op(:,:,:,3).*fftn(a_j));   % _segment_ip_evolve(3), (x,y)
             
-            % 1st half of dispersion
-            psi_fun     = disp_op.*psi_fun;
-            psi_fun     = ifftn(psi_fun);
             
-            % Compute interaction using ARK45(DP)
-            dt_changed  = false;    % step successful, but dt needs to be increased for efficiency, or reduced for sampling
+            % a_l = e_1*a_i + e_2*y1 + e_3*a_k * e_4*a_j
+            a_l         = ark_e(1)*a_i + ark_e(2)*psi_fun + ark_e(3)*a_k + ark_e(4)*a_j;    %(x,y)
             
-            % ARK45(DP)
-            P_A   = dt*gpeFun(psi_fun);
-            P_B   = dt*gpeFun(psi_fun +          1/5*P_A);
-            P_C   = dt*gpeFun(psi_fun +         3/40*P_A +       9/40*P_B);
-            P_D   = dt*gpeFun(psi_fun +        44/45*P_A -      56/15*P_B +       32/9*P_C);
-            P_E   = dt*gpeFun(psi_fun +   19372/6561*P_A - 25360/2187*P_B + 64448/6561*P_C - 212/729*P_D);
-            P_F   = dt*gpeFun(psi_fun +    9017/3168*P_A -     355/33*P_B + 46732/5247*P_C +	49/176*P_D -    5103/18656*P_E);
+            % y1 = y1 + c_3 * a_j
+            psi_fun     = psi_fun + ark_c(3)*a_j;               % (x,y)
             
-            % 5th, 4th order estimates
-            P_G   = dt*gpeFun(psi_fun +       35/384*P_A +          0*P_B +   500/1113*P_C + 125/192*P_D -     2187/6784*P_E +    11/84*P_F           );
-            P_H   = dt*gpeFun(psi_fun +   5179/57600*P_A +          0*P_B + 7571/16695*P_C + 393/640*P_D -  92097/339200*P_E + 187/2100*P_F + 1/40*P_G);
+            % y2 = y2 + cs_3*a_j
+            psi_check   = psi_check + ark_cs(3)*a_j;
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % t+= _a[4] * _step
+            
+            % active_xy_main = _alfield_xy_main;
+            
+            % a_l = D((a_4-a_2)*dt)[a_l]
+            a_l         = fftn(a_l)./disp_op(:,:,:,4);      % _segment1_ip_evolve(-4), (kx,ky)
+            
+            % a_l = G[a_l, t + aa_4*t]
+            a_l         = dt*gpeFun(ifftn(a_l));            % (x,y)
+            
+            % a_l = D(-(a_4-a_2)*dt)[a_l]
+            a_l         = ifftn(fftn(a_l).*disp_op(:,:,:,4));      % _segment1_ip_evolve(4), (kx,ky)
+
+            % y1 = y1 + c_4*a_l
+            psi_fun     = psi_fun + ark_c(4)*a_l;           % (x,y)
+            
+            % y2 = y2 +cs_4*al
+            psi_check   = psi_check + ark_c(4)*a_l;         % (x,y)
+            
+            % a_l = f_1*a_i + f_2*y1 + f_3*a_k + f_4*a_j + f_5*a_l
+            a_l         = ark_f(1)*a_i + ark_f(2)*psi_fun + ark_f(3)*a_k + ark_f(4)*a_j + ark_f(5)*a_l; % (x,y)
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            % t+= _a[5] * _step
+            
+            % a_l = G[a_l, t+ aa_5*dt]
+            a_l         = dt*gpeFun(a_l);
+            
+            % y2 = y2 + cs_5*a_l
+            psi_check   = psi_check + ark_cs(5)*a_l;
+            a_l         = ark_g(1)*a_i + ark_g(2)*a_k + ark_g(3)*a_j + ark_g(4)*psi_fun + ark_g(5)*a_l +ark_g(6)*psi_check; % (x,y)
+                            
+            
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%    
+            % t += _a[6] * _step;
+            
+            % a_l = D((a_6 - a_2)*dt)[a_l]
+            a_l         = fftn(a_l)./disp_op(:,:,:,5);  %_segment1_ip_evolve(-5), (kx,ky)
+            
+            % a_l = G[a_l, t + aa_6*dt]
+            a_l         = dt*gpeFun(ifftn(a_l)); % (x,y)
+            
+            % a_l = D(-(a_6 - a_2)*dt)[a_l]
+            a_l         = fftn(a_l).*disp_op(:,:,:,5);  %_segment1_ip_evolve(5), (kx,ky)
+            
+            % y1 = y1 + c_6*a_l
+            psi_fun     = psi_fun + ark_c(6)*a_l;
+            
+            % y2 = y2 + cs_6*a_l
+            psi_check   = psi_check + ark_cs(6)*a_l;
+                
+            %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+            %t -= _a[6]*_step;
             
             % Calculate error
-            P_err = sum(abs(P_G(:)-P_H(:)))/numel(P_G);
+            P_err = sum(abs(psi_fun(:)-psi_check(:)))/numel(psi_check);
             s     = min((dt*ark_tol./(2*(t_max)*P_err)).^(1/4));
 
             if s<1 || isnan(s)==true || isinf(s)==true
@@ -926,9 +1061,9 @@ fprintf('Done\n\n')
             end
         end
         
-        % 2nd half of dispersion
+        % Transform back
         psi_fun     = fftn(psi_fun);
-        psi_fun     = disp_op.*psi_fun;
+        %psi_fun     = disp_op.*psi_fun;
         
         
         % Update dt
@@ -1000,7 +1135,7 @@ fprintf('Done\n\n')
     end
 end
 
-function [a,b,c,cs,d,e,f,g] = ark45_butcherTableau_DP
+function [a,b,c,cs,d,e,f,g] = ark45_butcherTableau_DP(CUDA_on)
 
 % Define Butcher tableaus
 

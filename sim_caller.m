@@ -156,17 +156,18 @@ pars    = appendfields(pars,...
             'prop_mode','init',...
             'init_file',groundstate_file,...
             'prop_file',propagation_file,...
-            'overwriteInitFile',true);
+            'overwriteInitFile',true,...
+            'IP',true);
         
 % Save parameters to file
 save(pars_file,'pars')
 
 
 % Initialise
-pars.prop_mode  = 'init';
-pars.U          = U;
-pars.t_max      = 100e-3/Time;
-ARK45_IP_GPE_3D_sim(pars)
+% pars.prop_mode  = 'init';
+% pars.U          = U;
+% pars.t_max      = 20e-3/Time;
+% ARK45_IP_GPE_3D_sim(pars)
 
 % Propagate
 pars.prop_mode  = 'prop';
