@@ -1,6 +1,10 @@
 function sim_caller%(N85,N87,aprop,initModeVars)
 % Interface for ARK45_GPE_sim
 
+% Default sim is for N=3.5e4 Rb85 BEC groundstate in 70x70x7 Hz Trap at a_s =
+% 50a0. During propagation, 3 body losses are enabled (K3_im), and the
+% scattering length is ramped down to 10a0 over 5ms with a cosine function (a_s_fun).
+
 % File names
 file_prefix     = 'ARK45_test';
 groundstate_file= [file_prefix,'_groundstate'];
@@ -42,8 +46,8 @@ K3_im_exp   = -4.41e-41*hbar;   % 3-body recombination losses
 
 % Set time stuff
 t_max_exp           = 5e-3;            % total simulation time
-dt_exp              = 0.05e-3;          % this is fixed if prop_mode == 'init'
-sample_times_exp    = linspace(0,50e-3,100);% times to sample system
+dt_exp              = 0.5e-3;          % this is fixed if prop_mode == 'init'
+sample_times_exp    = linspace(0,50e-3,1000);% times to sample system
 
 %% Nondimensionalise
 Time    = 1/wx_exp;
@@ -81,7 +85,7 @@ sample_times    = sample_times_exp/Time;
 trap_fun    = @(x,y,z) 0.5*((wx*x).^2 + (wy*y).^2 + (wz*z).^2); % can also just supply array
 
 % Scattering length (e.g. if it is changing over time)
-f           = @(x) max(15*cos(1/(5e-3)/pi*x),10)*U*bohr_radius/a_s;
+a_s_fun     = @(x) max(15*cos(1/(5e-3)/pi*x),10)*U*bohr_radius/a_s;
 
 % Model function
 model_fun   = @gpe_cq_3body_losses;
@@ -125,7 +129,7 @@ pars    = appendfields(pars,...
 % note that U can be supplied as a constant or a function of the
 % dimensionalised time.
 pars    = appendfields(pars,...
-            'U',f ...
+            'U',a_s_fun ...
             );
 
 % Set three-body stuff
@@ -173,7 +177,7 @@ save(pars_file,'pars')
 pars.prop_mode  = 'prop';
 pars.t_max      = 100e-3/Time;
 pars.U          = @(t) U*max(cos(1/(5e-3)/pi*t*Time),0.5);
-ARK45_GPE_3D_sim(pars)
+ARK45_IP_GPE_3D_sim(pars)
 
 
 end

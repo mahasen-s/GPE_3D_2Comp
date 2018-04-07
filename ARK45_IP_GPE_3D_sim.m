@@ -1,4 +1,4 @@
-function ARK45_GPE_3D_sim(pars)
+function ARK45_IP_GPE_3D_sim(pars)
 % Should change the way arrays are written; should store piece wise on disk
 % Switch for Cubic-Quintic GPE
 % Functional form of integrator
@@ -382,7 +382,11 @@ switch prop_mode
                     % Propagate until next step will put t_now at the correct
                     % sample time. propState will set get_sample_flag = true when
                     % this happens
-                    propState
+                    if use_IP == true
+                        propState_RK45IP
+                    else
+                        propState
+                    end
                     updateSamplesAndPlot
                 end
                 
@@ -530,7 +534,7 @@ fprintf('Done\n\n')
         % Update dispersion operator for new dt
         % Note, that disp_op_coeff is 1D for non-IP and 4D for IP
         % (singleton in dims 1,2,3). 
-        disp_op      = exp(-1i*disp_op_coeff*D_const*dt*(Kx.^2+Ky.^2+Kz.^2));
+        disp_op      = exp(-1i*D_const*dt*disp_op_coeff.*(Kx.^2+Ky.^2+Kz.^2));
     end
 
     function disp_op = get_disp_op_IP
@@ -831,9 +835,11 @@ fprintf('Done\n\n')
         
         while try_again==true
             % Restore old values
+            % CHECK TRANSFORMS!
             
             psi_fun     = psi_fun_old;
-                        
+            dt_changed  = false;
+            
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             % a_i = D(a_2*Dt)[y1] ?
             psi_fun     = disp_op(:,:,:,1).*psi_fun;    % _segment1_ip_evolve(1)
@@ -922,7 +928,7 @@ fprintf('Done\n\n')
             psi_fun     = psi_fun + ark_c(4)*a_l;           % (x,y)
             
             % y2 = y2 +cs_4*al
-            psi_check   = psi_check + ark_c(4)*a_l;         % (x,y)
+            psi_check   = psi_check + ark_cs(4)*a_l;         % (x,y)
             
             % a_l = f_1*a_i + f_2*y1 + f_3*a_k + f_4*a_j + f_5*a_l
             a_l         = ark_f(1)*a_i + ark_f(2)*psi_fun + ark_f(3)*a_k + ark_f(4)*a_j + ark_f(5)*a_l; % (x,y)
@@ -948,7 +954,7 @@ fprintf('Done\n\n')
             a_l         = dt*gpeFun(ifftn(a_l)); % (x,y)
             
             % a_l = D(-(a_6 - a_2)*dt)[a_l]
-            a_l         = fftn(a_l).*disp_op(:,:,:,5);  %_segment1_ip_evolve(5), (kx,ky)
+            a_l         = ifftn(fftn(a_l).*disp_op(:,:,:,5));  %_segment1_ip_evolve(5), (kx,ky)
             
             % y1 = y1 + c_6*a_l
             psi_fun     = psi_fun + ark_c(6)*a_l;
@@ -963,6 +969,7 @@ fprintf('Done\n\n')
             P_err = sum(abs(psi_fun(:)-psi_check(:)))/numel(psi_check);
             s     = min((dt*ark_tol./(2*(t_max)*P_err)).^(1/4));
 
+            %s     = 1.5;    
             if s<1 || isnan(s)==true || isinf(s)==true
                 % Previous step was too large. Halve and try again.
                 updateDt(ark_lo_ratio*dt)
@@ -1055,10 +1062,9 @@ fprintf('Done\n\n')
                 ark_steps_without_change   = ark_steps_without_change + 1;
             end
             
-            if try_again==false
+            %if try_again==false
                 % Step was successful
-                psi_fun   = psi_fun + P_G;
-            end
+            %end
         end
         
         % Transform back
