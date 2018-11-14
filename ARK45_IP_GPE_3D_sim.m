@@ -24,8 +24,8 @@ N               = pars.N;
 trap_fun        = pars.trap_fun;
 
 % Model parameters
-% model_fun       = pars.model_fun;
-% model_pars      = pars.model_pars;
+model_fun       = pars.model_fun;
+model_pars      = pars.model_pars;
 
 % Chemical potential
 chemical_potential  = pars.chemical_potential;
@@ -501,9 +501,14 @@ end
 fprintf('Done\n\n')
 
 %% GPE FUNCTION
-    function out = gpeFun(psi_fun)
+    function out = gpeFun_old(psi_fun)
         dens    = abs(psi_fun).^2;
         out     = 1i*((-U_now*dens-K3_im*dens.^2-potential).*psi_fun);
+    end
+
+    function out = gpeFun(psi_fun)
+        dens    = abs(psi_fun).^2;
+        out     = 1i*((-U_now*dens-model_pars.LHY*dens.^(3/2)-model_pars.K3_im*dens.^2-potential).*psi_fun);
     end
 
 %% SUBFUNCTIONS

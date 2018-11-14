@@ -42,7 +42,7 @@ size_z_exp  = 50e-6;
 % Set interaction strengths
 a_s         = 50*bohr_radius;            % scattering length
 U_exp       = (4*pi*hbar^2*a_s/mass);
-K3_im_exp   = -4.41e-41*hbar;   % 3-body recombination losses
+K3_im_exp   = -4.41e-37*hbar;   % 3-body recombination losses
 
 % Set time stuff
 t_max_exp           = 5e-3;            % total simulation time
@@ -58,6 +58,9 @@ D_const = hbar / (4*mass) / (Length^2) * Time;
 
 % Self-interaction
 U           = U_exp/Length^3/Energy;
+
+% LHY coeff
+LHY         = (32/3)*U*sqrt(a_s^3/pi)/(Length^(3/2)); % ignoring DDI
 
 % 3 body losses
 K3_im       = K3_im_exp/(Energy*Length^6);
@@ -89,7 +92,7 @@ a_s_fun     = @(x) max(15*cos(1/(5e-3)/pi*x),10)*U*bohr_radius/a_s;
 
 % Model function
 model_fun   = @gpe_cq_3body_losses;
-model_pars  = struct('K3_im',K3_im);
+model_pars  = struct('K3_im',K3_im,'LHY',LHY);
 
 %% SET PARAMETERS
 % Set trap geoemtry, number, and grid discretisation. trap_shift is shift
@@ -161,7 +164,7 @@ pars    = appendfields(pars,...
             'init_file',groundstate_file,...
             'prop_file',propagation_file,...
             'overwriteInitFile',true,...
-            'IP',true);
+            'IP',false); % shouldn't be so much disagreement between IP and RK4
         
 % Save parameters to file
 save(pars_file,'pars')
