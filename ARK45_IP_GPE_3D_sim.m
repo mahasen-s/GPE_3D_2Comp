@@ -138,6 +138,7 @@ switch prop_mode
     case 'init'
         dt      = -1i*dt;
         K3_im   = 0;
+        model_pars.K3_im = 0;
 end
 
 %% 
@@ -508,7 +509,7 @@ fprintf('Done\n\n')
 
     function out = gpeFun(psi_fun)
         dens    = abs(psi_fun).^2;
-        out     = 1i*((-U_now*dens-model_pars.LHY*dens.^(3/2)-model_pars.K3_im*dens.^2-potential).*psi_fun);
+        out     = 1i*((-U_now*dens-model_pars.LHY(U_now)*dens.^(3/2)-model_pars.K3_im*dens.^2-potential).*psi_fun);
     end
 
 %% SUBFUNCTIONS

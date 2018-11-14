@@ -6,15 +6,15 @@ function sim_caller%(N85,N87,aprop,initModeVars)
 % scattering length is ramped down to 10a0 over 5ms with a cosine function (a_s_fun).
 
 % File names
-file_prefix     = 'ARK45_test';
+file_prefix     = '/mnt/dataDrive2/tmp/ARK45_test';
 groundstate_file= [file_prefix,'_groundstate'];
 propagation_file= [file_prefix,'_propagation'];
 pars_file       = [file_prefix,'_pars'];
 
 % Set discretisation of spatial domain
-n_x         = 2^6;
-n_y         = 2^6;
-n_z         = 2^6;
+n_x         = 2^5;
+n_y         = 2^5;
+n_z         = 2^5;
 
 %% Experimental parameters
 % parameters suffixed with _exp are the dimensional equivalents of
@@ -46,7 +46,7 @@ K3_im_exp   = -4.41e-37*hbar;   % 3-body recombination losses
 
 % Set time stuff
 t_max_exp           = 5e-3;            % total simulation time
-dt_exp              = 0.5e-3;          % this is fixed if prop_mode == 'init'
+dt_exp              = 0.5e-4;          % this is fixed if prop_mode == 'init'
 sample_times_exp    = linspace(0,50e-3,1000);% times to sample system
 
 %% Nondimensionalise
@@ -60,7 +60,8 @@ D_const = hbar / (4*mass) / (Length^2) * Time;
 U           = U_exp/Length^3/Energy;
 
 % LHY coeff
-LHY         = (32/3)*U*sqrt(a_s^3/pi)/(Length^(3/2)); % ignoring DDI
+%LHY         = (32/3)*U*sqrt(a_s^3/pi)/(Length^(3/2)); % ignoring DDI
+LHY         = @(U_now) 32/(3*sqrt(pi))*U_now*(U_now*Length^2*Energy*mass/(4*pi*hbar^2))^(3/2);
 
 % 3 body losses
 K3_im       = K3_im_exp/(Energy*Length^6);
@@ -171,16 +172,16 @@ save(pars_file,'pars')
 
 
 % Initialise
-% pars.prop_mode  = 'init';
-% pars.U          = U;
-% pars.t_max      = 20e-3/Time;
-% ARK45_IP_GPE_3D_sim(pars)
+pars.prop_mode  = 'init';
+pars.U          = U;
+pars.t_max      = 100e-3/Time;
+ARK45_IP_GPE_3D_sim(pars)
 
 % Propagate
-pars.prop_mode  = 'prop';
-pars.t_max      = 100e-3/Time;
-pars.U          = @(t) U*max(cos(1/(5e-3)/pi*t*Time),0.5);
-ARK45_IP_GPE_3D_sim(pars)
+% pars.prop_mode  = 'prop';
+% pars.t_max      = 100e-3/Time;
+% pars.U          = @(t) U*max(cos(1/(5e-3)/pi*t*Time),0.5);
+% ARK45_IP_GPE_3D_sim(pars)
 
 
 end
