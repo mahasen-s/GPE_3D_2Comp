@@ -172,25 +172,28 @@ size_z  = size_z/Length;
 
 % 85 self-interaction
 a85         = scat_init_85*bohr_radius; % Bohr radius * scattering length    
-UaUnit85    = 4*pi*hbar^2*a85/m85;          % Units of interaction parameter
+UaUnit85    = (4*pi*hbar^2*a85/m85)/(Energy*Length^3);          % Units of interaction parameter
+Ua85_LHY    = 32/(3*sqrt(pi))*UaUnit85*(UaUnit85*(Energy*Length^2)/(4*pi*hbar^2/m85))^(3/2);
 
 % 87 self-interaction
 a87         = scat_init_87*bohr_radius;     
-Ua87        = (4*pi*hbar^2*a87/m87)/(Energy*Length^3); 
+Ua87        = (4*pi*hbar^2*a87/m87)/(Energy*Length^3);
+Ua87_LHY    = 32/(3*sqrt(pi))*Ua87*(Ua87*(Energy*Length^2)/(4*pi*hbar^2/m87))^(3/2);
 
 % Cross-interaction
 a8587       = scat_init_8587*bohr_radius;     
 m_eff       = 2/(1/m85+1/m87);                % Effective mass
 Ua8587      = (4*pi*hbar^2*a8587/m_eff)/(Energy*Length^3); % Missing factor of 2? Or Paltins reduced mass is wrong?
+
  
 % Set interaction and losses
 switch propMode
     case 'init'
         G3_im       = 0;
-        Ua85        = UaUnit85/Length^3/Energy*(scat_init_85/scat_init_85);
+        Ua85        = UaUnit85*(scat_init_85/scat_init_85);
     case 'prop'
         G3_im       = K3_im_prop*hbar/(Energy*Length^6);
-        Ua85        = UaUnit85/Length^3/Energy*(scat_prop_85/scat_init_85);
+        Ua85        = UaUnit85*(scat_prop_85/scat_init_85);
 end
 G3_re       = K3_re_prop*hbar/(Energy*Length^6);
 G3          = G3_re + 1i*G3_im;
@@ -343,7 +346,7 @@ end
 if pars.ExpandOn == true
     
     % Expansion Ua unit
-    Ua_exp_85  = UaUnit85/Length^3/Energy*(scat_exp_85/scat_init_85);
+    Ua_exp_85  = UaUnit85*(scat_exp_85/scat_init_85);
     
     % Get expansion time
     dt_PostExp  = dt_PostExp_real/Time;
@@ -360,7 +363,7 @@ end
 %% SETUP RAMP STUFF
 if RampOn == true
     rampTime    = rampTime_real/Time;
-    rampUa_fun  = @(x) UaUnit85/Length^3/Energy*((scat_init_85 + x*(scat_prop_85-scat_init_85)/rampTime)/scat_init_85);
+    rampUa_fun  = @(x) UaUnit85*((scat_init_85 + x*(scat_prop_85-scat_init_85)/rampTime)/scat_init_85);
 end
 
 %% PREPARE FOR PROPAGATION
@@ -729,7 +732,7 @@ marg_w      = [0.14,0.0];
     %% Plot 2-Body interaction strength
     if RampOn == true
         subtightplot(4,4,16,stp)
-        Ua_list = UaUnit85/Length^3/Energy;
+        Ua_list = UaUnit85;
         h_ua    = plot(0,Ua_list,'LineWidth',2);
         title('2-Body Interaction Strength')
         xlabel('\textbf{Time}','FontWeight','Bold','FontSize',font_SmlSize,'Interpreter','Latex');
@@ -842,6 +845,7 @@ if strcmp(propMode,'prop') == true
         while getSampleFlag == false
             if RampOn == true
                 Ua85    = rampUa_fun(tNow);
+                Ua85_LHY= 32/(3*sqrt(pi))*Ua85*(Ua85*(Energy*Length^2)/(4*pi*hbar^2/m85))^(3/2);
             end
             
             % Propagate state by 1dt
@@ -1116,11 +1120,18 @@ fprintf('Done\n\n')
         width_r_exp  = trapz([-fliplr(r) r],[-fliplr(r) r].^2.*(trapz(z,[fliplr(abs(ps2_87_exp).^2) abs(ps2_87_exp).^2]))/n87)*(Length*10^6)^2;
     end
 
+%     function [g85,g87] = gpeFun(p85,p87)
+%         d85     = abs(p85).^2;
+%         d87     = abs(p87).^2;
+%         g85     = (1i*((-Ua85*d85-Ua8587*d87-G3*d85.^2-potential85).*p85))*dt;
+%         g87     = (1i*((-Ua87*d87-Ua8587*d85-G3*d87.^2-potential87).*p87))*dt;
+%     end
+
     function [g85,g87] = gpeFun(p85,p87)
         d85     = abs(p85).^2;
         d87     = abs(p87).^2;
-        g85     = (1i*((-Ua85*d85-Ua8587*d87-G3*d85.^2-potential85).*p85))*dt;
-        g87     = (1i*((-Ua87*d87-Ua8587*d85-G3*d87.^2-potential87).*p87))*dt;
+        g85     = (1i*((-Ua85*d85-Ua85_LHY*d85.^(3/2)-Ua8587*d87-G3*d85.^2-potential85).*p85))*dt;
+        g87     = (1i*((-Ua87*d87-Ua87_LHY*d87.^(3/2)-Ua8587*d85-G3*d87.^2-potential87).*p87))*dt;
     end
 
     function updateDt(newDt)
