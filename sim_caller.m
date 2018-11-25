@@ -6,7 +6,7 @@ function sim_caller_250517_fun%(N85,N87,aprop,initModeVars)
 
 
 % File names
-file_prefix     = '/mnt/dataDrive2/tmp/ARK45_2comp_test';
+file_prefix     = '/mnt/dataDrive2/tmp/ARK45_2comp_test2';
 groundstate     = [file_prefix,'_groundstate'];
 data_out        = [file_prefix,'_data'];
 pars_out        = [file_prefix,'_pars'];
@@ -41,7 +41,7 @@ pars    = struct(...
 % Set scattering lengths 
 pars    = appendfields(pars,...
             'RampTime',0,...
-            'scat_init_85',19,...
+            'scat_init_85',130,...
             'scat_init_87',108,...
             'scat_init_8587',214,...
             'scat_prop_85',19,...
@@ -122,9 +122,9 @@ a85_eqIntStr      = pars.m85/pars.m87*pars.scat_init_87;
 
 % Get groundstate
 gsFile              =  strrep([file_prefix,sprintf('8587_groundstate_as=%4.1fa0_Sym',pars.scat_init_85)],'.','p');
-% pars.fileIn         = gsFile;
-% pars.initModeVars   = [0,0,1];
-% ARK45_SSFM_8587_3D_sim(pars)
+pars.fileIn         = gsFile;
+pars.initModeVars   = [0,0,1];
+ARK45_SSFM_8587_3D_sim(pars)
 
 % Prop
 parsIn                  =   pars;
